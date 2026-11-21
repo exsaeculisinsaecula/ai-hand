@@ -1,0 +1,2263 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-HAND // 실시간 3D 와이어프레임 &amp; 비전 시뮬레이션 대시보드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Architectural Monotone Console Design Tokens (Semantic Color Only Where Needed) */
+  :root {
+    --bg: #111316;
+    --window: #181B1F;
+    --inset: #13161A;
+    --raised: #20242A;
+    --chip: #2A2F37;
+    --line: #323840;
+    --line-faint: #22262C;
+    --line-strong: #4B535E;
+    --text: #ECEEEB;
+    --text-sec: #B6BCC4;
+    --text-muted: #7C848E;
+    --text-disabled: #4F5660;
+    --accent: #D69E72;       /* Active target / lock emphasis only */
+    --accent-bg: #26201B;
+    --cyan: #9AA3AE;         /* Demoted to neutral cool silver */
+    --warning: #D9534F;      /* Fault / Emergency STOP only */
+    --pass: #6FBF73;         /* Grasp lock / Delivered / PASS only */
+    --graph: #121519;
+    --shadow: 0 12px 28px rgba(6, 8, 10, 0.55);
+  }
+
+  * { box-sizing: border-box; margin: 0; border-radius: 0; }
+  html, body {
+    background: var(--bg);
+    color: var(--text);
+    font: 12px/1.5 "Pretendard", "Malgun Gothic", system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+  }
+  .mono {
+    font-family: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+  }
+
+  /* Console Shell */
+  .console {
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 10px 12px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* Top System Bar */
+  .sysbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    background: var(--window);
+    border: 1px solid var(--line-strong);
+    min-height: 38px;
+  }
+  .sysbar-left {
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .sys-logo {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 700;
+    font-size: 13px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    letter-spacing: 0.06em;
+  }
+  .sys-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 6px 12px;
+  }
+  .sys-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sys-sub {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .sysbar-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 4px 8px;
+  }
+
+  /* Chips & Dots */
+  .mp-chip {
+    background: var(--inset);
+    border: 1px solid var(--line);
+    padding: 3px 8px;
+    font-size: 10.5px;
+    color: var(--text-sec);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .mp-chip.accent {
+    background: var(--inset);
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+  .mp-chip.pass {
+    background: var(--inset);
+    border-color: var(--line);
+    color: var(--text-sec);
+  }
+  .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--text-muted);
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .dot.pass { background: var(--pass); }
+  .dot.accent { background: var(--accent); }
+  .dot.warn { background: var(--warning); }
+  .dot.cyan { background: var(--text-sec); }
+
+  /* MpButton — Crisp Monotone by default; inverted bone-white when active; red ONLY for STOP */
+  .mp-btn {
+    font: inherit;
+    font-size: 11.5px;
+    color: var(--text-sec);
+    background: var(--inset);
+    border: 1px solid var(--line);
+    padding: 5px 10px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    transition: background 0.08s, border-color 0.08s, color 0.08s;
+    white-space: nowrap;
+  }
+  .mp-btn:hover { background: var(--raised); border-color: var(--line-strong); color: var(--text); }
+  .mp-btn:active { background: var(--chip); }
+  .mp-btn.sm { padding: 3px 7px; font-size: 10.5px; }
+  .mp-btn.strong {
+    background: var(--raised);
+    border-color: var(--line-strong);
+    color: var(--text);
+    font-weight: 600;
+  }
+  .mp-btn.strong:hover { background: var(--chip); border-color: var(--text-sec); }
+  .mp-btn.active,
+  .mp-btn.accent.active,
+  .mp-btn.pass.active,
+  .mp-btn.cyan.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .mp-btn.accent {
+    background: var(--raised);
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+  .mp-btn.accent:hover {
+    background: var(--chip);
+    border-color: var(--text);
+    color: var(--text);
+  }
+  .mp-btn.pass {
+    background: var(--inset);
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+  .mp-btn.pass:hover {
+    background: var(--raised);
+    border-color: var(--pass);
+    color: var(--pass);
+  }
+  .mp-btn.cyan {
+    background: var(--inset);
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+  .mp-btn.cyan:hover {
+    background: var(--raised);
+    border-color: var(--text);
+    color: var(--text);
+  }
+  .mp-btn.warn {
+    background: transparent;
+    border-color: var(--warning);
+    color: var(--warning);
+  }
+  .mp-btn.warn:hover {
+    background: var(--warning);
+    color: #FFFFFF;
+  }
+  .mp-btn.dashed { border-style: dashed; color: var(--text-muted); }
+  .mp-btn.dashed:hover { color: var(--text); }
+
+  /* MpWindow */
+  .mp-window {
+    background: var(--window);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .mp-window.aux {
+    border-color: var(--line);
+    box-shadow: none;
+  }
+  .win-titlebar {
+    min-height: 29px;
+    background: var(--raised);
+    border-bottom: 1px solid var(--line-strong);
+    display: flex;
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .mp-window.aux .win-titlebar {
+    min-height: 27px;
+    border-bottom-color: var(--line);
+  }
+  .win-label {
+    background: var(--text);
+    color: var(--bg);
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 0 11px;
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+  }
+  .mp-window.aux .win-label {
+    background: var(--chip);
+    color: var(--text);
+  }
+  .win-subject {
+    flex: 1;
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-sec);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 120px;
+  }
+  .win-tools {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border-left: 1px solid var(--line-faint);
+  }
+  .win-tool-btn {
+    font: inherit;
+    font-size: 10px;
+    padding: 2px 7px;
+    background: var(--inset);
+    color: var(--text-muted);
+    border: 1px solid var(--line-faint);
+    cursor: pointer;
+  }
+  .win-tool-btn:hover { color: var(--text); border-color: var(--line-strong); }
+  .win-tool-btn.active {
+    background: var(--text);
+    border-color: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .win-status {
+    padding: 0 10px;
+    display: flex;
+    align-items: center;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    border-left: 1px solid var(--line-faint);
+    white-space: nowrap;
+  }
+  .win-status.pass { color: var(--pass); }
+  .win-status.accent { color: var(--accent); }
+  .win-status.warn { color: var(--warning); }
+
+  /* Main 2-Column Grids */
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+  .main-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.32fr) minmax(0, 1fr);
+    gap: 8px;
+  }
+  @media (max-width: 1020px) {
+    .hero-grid, .main-grid { grid-template-columns: 1fr; }
+  }
+
+  /* 3D Wireframe Stage */
+  .canvas-wrap {
+    position: relative;
+    background: var(--graph);
+    border-bottom: 1px solid var(--line);
+    height: 390px;
+    overflow: hidden;
+    user-select: none;
+    touch-action: none;
+  }
+  .canvas-wrap canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  .canvas-wrap canvas.dragging { cursor: grabbing; }
+  .canvas-wrap canvas.pointer { cursor: pointer; }
+
+  .stage-overlay-hint {
+    position: absolute;
+    right: 10px;
+    bottom: 8px;
+    background: rgba(18, 22, 27, 0.82);
+    border: 1px solid var(--line-faint);
+    padding: 3px 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+
+  /* Ball Journey Track */
+  .ball-track {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    background: var(--inset);
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .bt-node {
+    padding: 6px 8px;
+    border-right: 1px solid var(--line-faint);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .bt-node:last-child { border-right: 0; }
+  .bt-node.active {
+    background: var(--raised);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text);
+  }
+  .bt-node.done {
+    color: var(--text-sec);
+    box-shadow: inset 0 -2px 0 rgba(111, 191, 115, 0.55);
+  }
+
+  /* Joint & LED Telemetry Footer */
+  .telemetry-bar {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--inset);
+    align-items: center;
+  }
+  .finger-meters {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+  }
+  @media (max-width: 680px) {
+    .finger-meters { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  .fm-item {
+    background: var(--window);
+    border: 1px solid var(--line-faint);
+    padding: 4px 6px;
+  }
+  .fm-head {
+    display: flex;
+    justify-content: space-between;
+    font-size: 9.5px;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+  }
+  .fm-head b { color: var(--text-sec); font-weight: 600; }
+  .fm-bar {
+    height: 4px;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .fm-bar i {
+    display: block;
+    height: 100%;
+    width: 15%;
+    background: #8B939E;
+  }
+  .fm-bar i.curled { background: var(--accent); }
+  .fm-bar i.servo { background: #B6BCC4; }
+
+  /* micro:bit 5x5 LED Matrix Preview */
+  .led-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: #14171B;
+    border: 1px solid var(--line);
+  }
+  .led-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 6px);
+    grid-template-rows: repeat(5, 6px);
+    gap: 2px;
+  }
+  .led-cell {
+    width: 6px;
+    height: 6px;
+    background: #2B2424;
+  }
+  .led-cell.on {
+    background: #FF4D3A;
+    box-shadow: 0 0 5px rgba(255, 77, 58, 0.85);
+  }
+  .led-meta {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    line-height: 1.35;
+  }
+  .led-meta strong { color: var(--text); display: block; }
+
+  /* Camera Window */
+  .cam-stage {
+    background: #101419;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+    height: 390px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    user-select: none;
+    touch-action: none;
+  }
+  .cam-stage canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .cam-stage img, .cam-stage video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: none;
+  }
+  .cam-placeholder {
+    position: absolute;
+    inset: 0;
+    background: rgba(16, 20, 25, 0.92);
+    text-align: center;
+    padding: 18px;
+    color: var(--text-muted);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .verdict-panel {
+    background: var(--inset);
+    border-bottom: 1px solid var(--line);
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .verdict-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .verdict-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    background: var(--window);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .verdict-badge.pass {
+    border-color: var(--pass);
+    background: rgba(134, 201, 90, 0.14);
+    color: var(--pass);
+  }
+  .verdict-badge.accent {
+    border-color: var(--accent);
+    background: var(--accent-bg);
+    color: var(--accent);
+  }
+  .verdict-badge.fail {
+    border-color: var(--warning);
+    background: rgba(226, 88, 58, 0.14);
+    color: var(--warning);
+  }
+  .verdict-reason {
+    font-size: 11px;
+    color: var(--text-sec);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .finger-row {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .finger-chip {
+    background: var(--window);
+    border: 1px solid var(--line-faint);
+    padding: 3px 5px;
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .finger-chip.on {
+    border-color: var(--text-sec);
+    background: var(--raised);
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .prox-strip {
+    background: var(--window);
+    padding: 7px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .prox-strip label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-sec);
+  }
+  input[type="range"] {
+    accent-color: #B6BCC4;
+    cursor: pointer;
+    height: 14px;
+  }
+
+  /* State Machine Panel */
+  .sm-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 5px;
+    padding: 8px 10px;
+  }
+  @media (max-width: 820px) {
+    .sm-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  .sm-cell {
+    background: var(--inset);
+    border: 1px solid var(--line-faint);
+    padding: 6px 7px;
+    transition: border-color 0.12s, background 0.12s;
+  }
+  .sm-cell.idle-active {
+    background: var(--raised);
+    border-color: var(--line-strong);
+  }
+  .sm-cell.active {
+    background: var(--accent-bg);
+    border-color: var(--accent);
+  }
+  .sm-cell.pass-active {
+    background: rgba(111, 191, 115, 0.10);
+    border-color: var(--pass);
+  }
+  .sm-cell.err {
+    background: #271919;
+    border-color: var(--warning);
+  }
+  .sm-code { font-size: 9.5px; color: var(--text-muted); font-weight: 600; }
+  .sm-cell.idle-active .sm-code { color: var(--text); }
+  .sm-cell.active .sm-code { color: var(--accent); }
+  .sm-cell.pass-active .sm-code { color: var(--pass); }
+  .sm-cell.err .sm-code { color: var(--warning); }
+  .sm-name { font-size: 11.5px; font-weight: 600; color: var(--text); margin-top: 1px; }
+  .sm-sub { font-size: 9.5px; color: var(--text-muted); margin-top: 1px; }
+
+  /* Progress Bar Band */
+  .bar-band {
+    background: var(--inset);
+    border-top: 1px solid var(--line-faint);
+    border-bottom: 1px solid var(--line-faint);
+    padding: 6px 10px;
+  }
+  .bar-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-sec);
+    margin-bottom: 4px;
+  }
+  .cont-bar {
+    height: 4px;
+    background: var(--line-faint);
+    width: 100%;
+    overflow: hidden;
+  }
+  .cont-bar i {
+    display: block;
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.06s linear;
+  }
+
+  .ctrl-strip {
+    padding: 8px 10px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    border-bottom: 1px solid var(--line-faint);
+  }
+  .ctrl-sep {
+    width: 1px;
+    height: 18px;
+    background: var(--line);
+    margin: 0 2px;
+  }
+  .opt-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--text-sec);
+    cursor: pointer;
+    margin-left: 4px;
+  }
+
+  /* Serial Console */
+  .log-console {
+    background: var(--inset);
+    padding: 7px 10px;
+    height: 155px;
+    overflow-y: auto;
+    font-size: 10.5px;
+    line-height: 1.6;
+  }
+  .log-row { display: flex; gap: 7px; }
+  .log-t { color: var(--text-disabled); flex-shrink: 0; }
+  .log-d { font-weight: 600; flex-shrink: 0; }
+  .log-d.tx { color: var(--text); }
+  .log-d.rx { color: var(--pass); }
+  .log-d.sys { color: var(--text-muted); }
+  .log-d.err { color: var(--warning); }
+
+  /* Right Aux Panel: Architecture + Manual Servo Control */
+  .aux-tabs {
+    display: flex;
+    background: var(--inset);
+    border-bottom: 1px solid var(--line);
+  }
+  .aux-tabs button {
+    flex: 1;
+    font: inherit;
+    font-size: 11px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 0;
+    border-right: 1px solid var(--line-faint);
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+  .aux-tabs button:last-child { border-right: 0; }
+  .aux-tabs button.active {
+    background: var(--window);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text);
+  }
+  .aux-pane { display: none; flex: 1; flex-direction: column; }
+  .aux-pane.active { display: flex; }
+
+  .section-hdr {
+    background: var(--raised);
+    border-bottom: 1px solid var(--line);
+    padding: 4px 10px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .panel-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--line-faint);
+    font-size: 11px;
+    transition: background 0.15s;
+  }
+  .panel-row.mod-active {
+    background: var(--raised);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .panel-row.mod-active .pr-lead { color: var(--text); font-weight: 700; }
+  .pr-lead { width: 70px; flex-shrink: 0; color: var(--text-sec); font-size: 10.5px; }
+  .pr-text { flex: 1; color: var(--text); }
+  .pr-tail { color: var(--text-muted); font-size: 10px; text-align: right; }
+
+  .inv-bar {
+    padding: 8px 10px;
+    background: var(--inset);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: auto;
+    border-top: 1px solid var(--line);
+  }
+  .inv-pill {
+    background: var(--window);
+    border: 1px solid var(--line-faint);
+    padding: 3px 8px;
+    font-size: 10.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .inv-swatch { width: 8px; height: 8px; display: inline-block; }
+
+  /* Manual Servo Panel */
+  .servo-grid {
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .servo-row {
+    display: grid;
+    grid-template-columns: 76px 1fr 44px;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+  }
+  .servo-row span:first-child { color: var(--text-sec); }
+  .servo-row span:last-child { text-align: right; color: var(--text); }
+
+  /* KPI Strip */
+  .kpi-strip {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+  @media (max-width: 980px) { .kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 600px) { .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stat-tile {
+    background: var(--window);
+    border: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+  }
+  .stat-tile-head {
+    background: var(--raised);
+    border-bottom: 1px solid var(--line);
+    padding: 4px 9px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-sec);
+  }
+  .stat-tile-body {
+    padding: 7px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stat-val { font-size: 16px; font-weight: 600; color: var(--text); }
+  .stat-desc { font-size: 10px; color: var(--text-muted); }
+
+  /* Bottom Tabbed Spec Window */
+  .tab-strip {
+    display: flex;
+    background: var(--inset);
+    border-bottom: 1px solid var(--line);
+    overflow-x: auto;
+  }
+  .tab-strip button {
+    font: inherit;
+    font-size: 11px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 0;
+    border-right: 1px solid var(--line-faint);
+    padding: 7px 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tab-strip button:hover { background: var(--raised); color: var(--text); }
+  .tab-strip button.active {
+    background: var(--window);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: inset 0 -2px 0 var(--text);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th, td {
+    text-align: left;
+    padding: 7px 11px;
+    border-bottom: 1px solid var(--line-faint);
+    vertical-align: top;
+  }
+  th {
+    background: var(--inset);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--line);
+  }
+  tr:hover td { background: var(--raised); }
+  tr:last-child td { border-bottom: 0; }
+  .cell-accent { color: var(--text); font-weight: 600; }
+  .cell-pass { color: var(--text-sec); }
+  .cell-warn { color: var(--warning); }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--inset); }
+  ::-webkit-scrollbar-thumb { background: var(--line); }
+</style>
+</head>
+<body>
+<div class="console">
+  <!-- Top System Bar -->
+  <header class="sysbar">
+    <div class="sysbar-left">
+      <div class="sys-logo mono">AI-HAND</div>
+      <div class="sys-meta">
+        <span class="sys-title">손짓 요청 부품 전달 로봇 — 실시간 3D 와이어프레임 &amp; 비전 시뮬레이터</span>
+        <span class="sys-sub mono">단일 AiHand(1대) · 5지 선형 관절 모델링 · 객체 네모칸 근접 파지 · 경사로 슈트 물리</span>
+      </div>
+    </div>
+    <div class="sysbar-right">
+      <span class="mp-chip mono" id="connBadge"><i class="dot"></i>VIRTUAL SIM 60FPS</span>
+      <button id="autoDemoBtn" class="mp-btn strong mono" type="button">▶ 자동 시나리오 데모</button>
+      <button id="proxQuickBtn" class="mp-btn mono" type="button">◎ 근접 자동 잡기</button>
+      <button id="resetAllBtn" class="mp-btn mono" type="button">↺ 전체 시나리오 리셋</button>
+      <button id="resumeBtn" class="mp-btn mono" type="button" hidden>↺ 대기 복귀 (HOME)</button>
+      <button id="stopBtn" class="mp-btn warn mono" type="button">■ 비상 정지 (STOP)</button>
+    </div>
+  </header>
+
+  <!-- Hero 2-Column Workspace: 3D Wireframe Robotic Hand + Simulated Vision Camera -->
+  <div class="hero-grid">
+    <!-- LEFT HERO: 3D Wireframe Robotic Hand & Ball Trajectory -->
+    <section class="mp-window">
+      <div class="win-titlebar">
+        <div class="win-label">3D 와이어프레임 모델링</div>
+        <div class="win-subject">선 기반 5지 로봇손 실시간 접힘 · 공 3D 궤적 · 경사로 슈트 · 초음파 인계</div>
+        <div class="win-tools mono">
+          <button type="button" class="win-tool-btn active" data-cam="iso">ISO 3D</button>
+          <button type="button" class="win-tool-btn" data-cam="hand">손 클로즈업</button>
+          <button type="button" class="win-tool-btn" data-cam="side">측면 궤적</button>
+          <button type="button" class="win-tool-btn" data-cam="top">탑뷰</button>
+          <button type="button" class="win-tool-btn active" id="trailToggleBtn">궤적 ON</button>
+        </div>
+        <div class="win-status mono" id="stageStepLabel">IDLE · 대기</div>
+      </div>
+
+      <div class="canvas-wrap" id="wireframeWrap">
+        <canvas id="wireframeCanvas"></canvas>
+        <div class="stage-overlay-hint mono">배경 드래그: 3D 시점 회전 · 휠: 확대/축소 · 공 드래그: 로봇손 가까이 가져와 자동 파지!</div>
+      </div>
+
+      <!-- Real-Time Ball Journey Progress Strip -->
+      <div class="ball-track mono" id="ballTrack">
+        <div class="bt-node active" data-zone="TRAY"><span>① 트레이</span><span id="btTrayText">대기</span></div>
+        <div class="bt-node" data-zone="GRIP"><span>② 5지 파지</span><span id="btGripText">—</span></div>
+        <div class="bt-node" data-zone="CHUTE"><span>③ 경사로 슈트</span><span id="btChuteText">—</span></div>
+        <div class="bt-node" data-zone="BAY"><span>④ 수령 트레이</span><span id="btBayText">—</span></div>
+        <div class="bt-node" data-zone="HANDED"><span>⑤ 작업자 수령</span><span id="btHandText">—</span></div>
+      </div>
+
+      <!-- Real-Time 5-Finger Curl & Pan/Tilt Telemetry + micro:bit 5x5 LED -->
+      <div class="telemetry-bar">
+        <div class="finger-meters mono">
+          <div class="fm-item">
+            <div class="fm-head"><span>PAN</span><b id="valPan">90°</b></div>
+            <div class="fm-bar"><i class="servo" id="barPan" style="width:50%"></i></div>
+          </div>
+          <div class="fm-item">
+            <div class="fm-head"><span>TILT</span><b id="valTilt">90°</b></div>
+            <div class="fm-bar"><i class="servo" id="barTilt" style="width:50%"></i></div>
+          </div>
+          <div class="fm-item">
+            <div class="fm-head"><span>엄지</span><b id="valF0">12%</b></div>
+            <div class="fm-bar"><i id="barF0" style="width:12%"></i></div>
+          </div>
+          <div class="fm-item">
+            <div class="fm-head"><span>검지</span><b id="valF1">12%</b></div>
+            <div class="fm-bar"><i id="barF1" style="width:12%"></i></div>
+          </div>
+          <div class="fm-item">
+            <div class="fm-head"><span>중지</span><b id="valF2">12%</b></div>
+            <div class="fm-bar"><i id="barF2" style="width:12%"></i></div>
+          </div>
+          <div class="fm-item">
+            <div class="fm-head"><span>약지</span><b id="valF3">12%</b></div>
+            <div class="fm-bar"><i id="barF3" style="width:12%"></i></div>
+          </div>
+          <div class="fm-item">
+            <div class="fm-head"><span>소지</span><b id="valF4">12%</b></div>
+            <div class="fm-bar"><i id="barF4" style="width:12%"></i></div>
+          </div>
+        </div>
+
+        <div class="led-box mono" title="micro:bit V2 5x5 LED 매트릭스 실시간 미러링">
+          <div class="led-grid" id="ledMatrix"></div>
+          <div class="led-meta">
+            <strong>micro:bit</strong>
+            <span id="ledLabel">LED: IDLE</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT HERO: Virtual AI Vision Camera (Bounding Boxes + Proximity Grasp) / Live Webcam -->
+    <section class="mp-window" id="cameraWindow">
+      <div class="win-titlebar">
+        <div class="win-label">비전 카메라</div>
+        <div class="win-subject">객체 네모칸 추적 · 근접 자동 파지 · 21점 손짓 인식</div>
+        <div class="win-tools mono">
+          <button type="button" class="win-tool-btn active" data-cam-mode="sim">가상 비전</button>
+          <button type="button" class="win-tool-btn" data-cam-mode="webcam">실물 웹캠</button>
+          <button type="button" class="win-tool-btn" data-cam-mode="image">이미지 판별</button>
+        </div>
+        <div class="win-status mono" id="camWinStatus">SIM · LIVE</div>
+      </div>
+
+      <div class="cam-stage" id="camDropZone">
+        <canvas id="visionCanvas"></canvas>
+        <img id="webcamFeed" alt="실물 카메라 손짓 인식 영상">
+        <video id="browserWebcam" autoplay playsinline muted></video>
+        <div class="cam-placeholder" id="camPlaceholder">
+          <div class="mono" style="font-size:12px;color:var(--text-sec);" id="camPlaceholderTitle">실물 웹캠 대기 중</div>
+          <div style="font-size:11px;max-width:290px;" id="camPlaceholderDesc">
+            <b>웹캠 시작</b>으로 실제 손짓(1·2·3·손바닥)을 인식해 3D 와이어프레임 로봇손을 제어하거나, 손 사진 파일을 끌어다 놓을 수 있습니다.
+          </div>
+          <div style="display:flex;gap:6px;margin-top:4px;">
+            <button class="mp-btn accent" type="button" id="camStartInlineBtn">실물 웹캠 시작</button>
+            <button class="mp-btn dashed" type="button" id="camUploadInlineBtn">손 이미지 업로드</button>
+            <button class="mp-btn cyan" type="button" id="backToSimCamBtn">가상 비전으로 복귀</button>
+          </div>
+        </div>
+        <input type="file" id="camFileInput" accept="image/*" hidden>
+      </div>
+
+      <!-- Camera Detection Verdict Panel -->
+      <div class="verdict-panel">
+        <div class="verdict-top">
+          <span class="verdict-badge mono" id="verdictBadge">비전 추적 중</span>
+          <span class="verdict-reason" id="verdictReason">공 네모칸을 클릭해 요청하거나 로봇손 가까이 드래그하세요.</span>
+          <span class="mono" style="font-size:10.5px;color:var(--text-sec);" id="verdictDist">최단: 16.8cm</span>
+        </div>
+        <div class="cont-bar"><i id="verdictBar" style="width:45%;background:#8B939E;"></i></div>
+        <div class="finger-row mono" id="fingerRow">
+          <div class="finger-chip" data-f="0">엄지</div>
+          <div class="finger-chip" data-f="1">검지</div>
+          <div class="finger-chip" data-f="2">중지</div>
+          <div class="finger-chip" data-f="3">약지</div>
+          <div class="finger-chip" data-f="4">소지</div>
+        </div>
+      </div>
+
+      <!-- Proximity Grasp Tuning Bar -->
+      <div class="prox-strip mono">
+        <button class="mp-btn sm strong" type="button" id="proxApproachBtn">▶ 공 가까이 보내기</button>
+        <button class="mp-btn sm" type="button" id="proxWatchBtn">근접 대기 OFF</button>
+        <label style="margin-left:auto;">
+          <span>잡기 거리</span>
+          <input type="range" id="proxThresholdSlider" min="4.5" max="14.0" step="0.5" value="8.5" style="width:76px;">
+          <b id="proxThresholdVal" style="color:var(--text);min-width:40px;">8.5cm</b>
+        </label>
+        <span style="color:var(--text-muted);font-size:10px;" id="camFpsText">60.0 FPS</span>
+      </div>
+    </section>
+  </div>
+
+  <!-- Middle 2-Column Workspace: 7-State Machine & Serial Log + Architecture / Manual Servos -->
+  <div class="main-grid">
+    <!-- LEFT: Organic 7-State Machine Controller & Serial Log -->
+    <section class="mp-window">
+      <div class="win-titlebar">
+        <div class="win-label">유기적 상태 머신</div>
+        <div class="win-subject">계획서 7-상태 파이프라인 (홀드 1초 · 취소 창 2초 · 슈트 투하 · 초음파 인계 · 예외 복구)</div>
+        <div class="win-status pass mono" id="simStateBadge">IDLE</div>
+      </div>
+
+      <div class="sm-grid" id="smFlow">
+        <div class="sm-cell active" data-state="IDLE">
+          <div class="sm-code mono">IDLE</div>
+          <div class="sm-name">대기</div>
+          <div class="sm-sub">HOME 자세</div>
+        </div>
+        <div class="sm-cell" data-state="REQUEST">
+          <div class="sm-code mono">REQUEST</div>
+          <div class="sm-name">요청 홀드</div>
+          <div class="sm-sub">1.0초 유지</div>
+        </div>
+        <div class="sm-cell" data-state="CONFIRM">
+          <div class="sm-code mono">CONFIRM</div>
+          <div class="sm-name">확인/취소</div>
+          <div class="sm-sub">SHOW,N · 2초</div>
+        </div>
+        <div class="sm-cell" data-state="PICK">
+          <div class="sm-code mono">PICK</div>
+          <div class="sm-name">5지 집기</div>
+          <div class="sm-sub">PICK,N</div>
+        </div>
+        <div class="sm-cell" data-state="DELIVER">
+          <div class="sm-code mono">DELIVER</div>
+          <div class="sm-name">슈트 전달</div>
+          <div class="sm-sub">RELEASE</div>
+        </div>
+        <div class="sm-cell" data-state="HANDOVER">
+          <div class="sm-code mono">HANDOVER</div>
+          <div class="sm-name">초음파 인계</div>
+          <div class="sm-sub">EVT,HAND</div>
+        </div>
+        <div class="sm-cell" data-state="RETURN">
+          <div class="sm-code mono">RETURN</div>
+          <div class="sm-name">반납 복귀</div>
+          <div class="sm-sub">RETURN,N</div>
+        </div>
+      </div>
+
+      <div class="bar-band">
+        <div class="bar-meta">
+          <span style="display:flex;align-items:center;gap:6px;"><i class="dot pass" id="simDot"></i> <span id="simMsg">대기 중 — 손짓(1·2·3)을 누르거나 공을 로봇손 가까이 드래그하세요.</span></span>
+          <span class="mono" id="simTimer">0.0s</span>
+        </div>
+        <div class="cont-bar"><i id="simBar"></i></div>
+      </div>
+
+      <div class="ctrl-strip">
+        <button class="mp-btn accent" type="button" onclick="uiGesture(1)">손짓 1 (캡A)</button>
+        <button class="mp-btn accent" type="button" onclick="uiGesture(2)">손짓 2 (캡B)</button>
+        <button class="mp-btn accent" type="button" onclick="uiGesture(3)">손짓 3 (캡C)</button>
+        <button class="mp-btn" type="button" onclick="uiCancel()">손바닥 (취소)</button>
+        <span class="ctrl-sep"></span>
+        <button class="mp-btn pass" type="button" onclick="uiHand()">수령 확인 (EVT,HAND)</button>
+        <button class="mp-btn" type="button" onclick="uiReturn()">무응답 반납</button>
+        <span class="ctrl-sep"></span>
+        <button class="mp-btn dashed" type="button" onclick="uiError('ERR,EMPTY')">ERR,EMPTY</button>
+        <button class="mp-btn dashed" type="button" onclick="uiError('ERR,GRIP')">ERR,GRIP</button>
+        <button class="mp-btn dashed" id="falseTrigBtn" type="button" onclick="uiFalseTrigger()">오인식 기록</button>
+        <span class="ctrl-sep"></span>
+        <button class="mp-btn strong" type="button" onclick="uiResetAll()">↺ 전체 리셋</button>
+        <label class="opt-check mono">
+          <input type="checkbox" id="autoHandoverChk" checked> 자동 수령
+        </label>
+        <label class="opt-check mono">
+          속도
+          <select id="speedSelect" class="mono" style="background:var(--inset);color:var(--text);border:1px solid var(--line);padding:1px 4px;font-size:10.5px;">
+            <option value="0.6">0.6x</option>
+            <option value="1" selected>1.0x</option>
+            <option value="1.5">1.5x</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="log-console mono" id="serialLog"></div>
+    </section>
+
+    <!-- RIGHT: Live System Architecture + Manual Wireframe Joint Lab -->
+    <section class="mp-window aux">
+      <div class="win-titlebar">
+        <div class="win-label">시스템 &amp; 관절 제어</div>
+        <div class="win-subject">실시간 모듈 흐름 · 트레이 재고 · 5지 수동 접힘 테스트</div>
+        <div class="win-status mono" id="modeTagRight">AUTO KINEMATICS</div>
+      </div>
+
+      <div class="aux-tabs">
+        <button type="button" class="active" data-aux="arch">실시간 시스템 구성 &amp; 재고</button>
+        <button type="button" data-aux="servos">5지 로봇손 수동 접기 테스트</button>
+      </div>
+
+      <!-- Pane 1: Live Architecture Highlights + Stock -->
+      <div class="aux-pane active" id="aux-arch">
+        <div class="section-hdr"><span>PC / 라즈베리 파이 (3모듈)</span><span class="mono">RECOGNIZE · DECIDE</span></div>
+        <div class="panel-row" data-mod="gesture">
+          <span class="pr-lead mono">gesture</span>
+          <span class="pr-text">21점 랜드마크 손짓(1/2/3/PALM) · 비전 네모칸 검출</span>
+          <span class="pr-tail mono">PC/Pi</span>
+        </div>
+        <div class="panel-row" data-mod="controller">
+          <span class="pr-lead mono">controller</span>
+          <span class="pr-text">7-상태 머신 · 1초 홀드 · 2초 취소 · 근접 파지 판단</span>
+          <span class="pr-tail mono">PC/Pi</span>
+        </div>
+        <div class="panel-row" data-mod="ui">
+          <span class="pr-lead mono">ui · log</span>
+          <span class="pr-text">3D 와이어프레임 · 비전 오버레이 · CSV 타임스탬프</span>
+          <span class="pr-tail mono">PC</span>
+        </div>
+
+        <div class="section-hdr"><span>통신 경계 (link)</span><span class="mono">USB SERIAL 115200bps</span></div>
+        <div class="panel-row" data-mod="link">
+          <span class="pr-lead mono">protocol</span>
+          <span class="pr-text">SHOW / PICK / DELIVER / RELEASE / RETURN / HOME / STOP</span>
+          <span class="pr-tail mono">TX ↔ RX</span>
+        </div>
+
+        <div class="section-hdr"><span>micro:bit V2 · 하드웨어 (2모듈)</span><span class="mono">ACTUATE · SENSE</span></div>
+        <div class="panel-row" data-mod="robot">
+          <span class="pr-lead mono">robot</span>
+          <span class="pr-text">팬틸트 180° · 5지 서보 각도 클램프 · 자세 프리셋</span>
+          <span class="pr-tail mono">AiHand × 1</span>
+        </div>
+        <div class="panel-row" data-mod="handover">
+          <span class="pr-lead mono">handover</span>
+          <span class="pr-text">초음파(≤15cm 연속 3회) · WonderCam 빈 트레이 감지</span>
+          <span class="pr-tail mono" id="usLiveLabel">42.0 cm</span>
+        </div>
+
+        <div class="inv-bar mono">
+          <span style="color:var(--text-muted);font-size:10px;">트레이 재고</span>
+          <span class="inv-pill"><i class="inv-swatch" style="background:#D8DCE0;"></i>#1 캡A: <b id="inv1">3</b></span>
+          <span class="inv-pill"><i class="inv-swatch" style="background:#9EA6B0;"></i>#2 캡B: <b id="inv2">3</b></span>
+          <span class="inv-pill"><i class="inv-swatch" style="background:#6E7681;"></i>#3 캡C: <b id="inv3">3</b></span>
+          <button type="button" class="mp-btn sm" style="margin-left:auto;" id="refillStockBtn">전체 보충</button>
+        </div>
+      </div>
+
+      <!-- Pane 2: Manual 5-Finger Wireframe Joint Control -->
+      <div class="aux-pane" id="aux-servos">
+        <div class="servo-grid mono">
+          <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:2px;">
+            <button type="button" class="mp-btn sm" onclick="presetManualPose('open')">5지 펴기</button>
+            <button type="button" class="mp-btn sm accent" onclick="presetManualPose('fist')">5지 접기 (파지)</button>
+            <button type="button" class="mp-btn sm" onclick="presetManualPose('1')">손짓 1</button>
+            <button type="button" class="mp-btn sm" onclick="presetManualPose('2')">손짓 2</button>
+            <button type="button" class="mp-btn sm" onclick="presetManualPose('3')">손짓 3</button>
+            <button type="button" class="mp-btn sm pass" style="margin-left:auto;" onclick="presetManualPose('auto')">자동 제어 복귀</button>
+          </div>
+          <div class="servo-row">
+            <span>PAN 회전</span>
+            <input type="range" id="slPan" min="15" max="175" value="90">
+            <span id="slPanVal">90°</span>
+          </div>
+          <div class="servo-row">
+            <span>TILT 기울기</span>
+            <input type="range" id="slTilt" min="55" max="150" value="90">
+            <span id="slTiltVal">90°</span>
+          </div>
+          <div class="servo-row">
+            <span>5지 일괄 접기</span>
+            <input type="range" id="slGripAll" min="0" max="100" value="12">
+            <span id="slGripAllVal">12%</span>
+          </div>
+          <div class="servo-row">
+            <span>① 엄지 관절</span>
+            <input type="range" class="sl-finger" data-fi="0" min="0" max="100" value="12">
+            <span id="slF0Val">12%</span>
+          </div>
+          <div class="servo-row">
+            <span>② 검지 관절</span>
+            <input type="range" class="sl-finger" data-fi="1" min="0" max="100" value="12">
+            <span id="slF1Val">12%</span>
+          </div>
+          <div class="servo-row">
+            <span>③ 중지 관절</span>
+            <input type="range" class="sl-finger" data-fi="2" min="0" max="100" value="12">
+            <span id="slF2Val">12%</span>
+          </div>
+          <div class="servo-row">
+            <span>④ 약지 관절</span>
+            <input type="range" class="sl-finger" data-fi="3" min="0" max="100" value="12">
+            <span id="slF3Val">12%</span>
+          </div>
+          <div class="servo-row">
+            <span>⑤ 소지 관절</span>
+            <input type="range" class="sl-finger" data-fi="4" min="0" max="100" value="12">
+            <span id="slF4Val">12%</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Live KPI Strip -->
+  <section class="kpi-strip" aria-label="성능 지표">
+    <div class="stat-tile">
+      <div class="stat-tile-head"><span>비전 · 제스처 인식</span><span class="mono" style="color:var(--text-muted)">KPI-01</span></div>
+      <div class="stat-tile-body">
+        <div class="stat-val mono" id="kpiAcc">STANDBY</div>
+        <div class="stat-desc" id="kpiAccDesc">실시간 21점 손짓 · 객체 네모칸 검출</div>
+      </div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-tile-head"><span>오인식 요청 수</span><span class="mono" style="color:var(--text-muted)">KPI-02</span></div>
+      <div class="stat-tile-body">
+        <div class="stat-val mono" id="kpiFalse">0회</div>
+        <div class="stat-desc">조립 동작 중 오인식 마킹 횟수</div>
+      </div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-tile-head"><span>평균 전달 시간</span><span class="mono" style="color:var(--text-muted)">KPI-03</span></div>
+      <div class="stat-tile-body">
+        <div class="stat-val mono" id="kpiTime">측정 대기</div>
+        <div class="stat-desc">요청 확정 → 슈트 투하 / 수령</div>
+      </div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-tile-head"><span>전달 성공률</span><span class="mono" style="color:var(--text-muted)">KPI-04</span></div>
+      <div class="stat-tile-body">
+        <div class="stat-val mono" id="kpiRate">측정 대기</div>
+        <div class="stat-desc" id="kpiRateDesc">성공 0 / 요청 0 (취소 0)</div>
+      </div>
+    </div>
+    <div class="stat-tile">
+      <div class="stat-tile-head"><span>시뮬레이션 · 추론 FPS</span><span class="mono" style="color:var(--text-muted)">KPI-05</span></div>
+      <div class="stat-tile-body">
+        <div class="stat-val mono" id="kpiFps">60.0 FPS</div>
+        <div class="stat-desc">3D 와이어프레임 + 비전 동시 구동</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom Tabbed Plan Specification Window -->
+  <section class="mp-window aux">
+    <div class="win-titlebar">
+      <div class="win-label">계획서 상세 명세</div>
+      <div class="win-subject">모듈 경계 · 시리얼 프로토콜 · 예외 처리 · 1대 기준 BOM</div>
+      <div class="win-status mono">MP-400 SPEC</div>
+    </div>
+
+    <div class="tab-strip" role="tablist">
+      <button type="button" class="active" data-tab="modules">모듈별 상세 (6)</button>
+      <button type="button" data-tab="protocol">통신 프로토콜 초안 (7)</button>
+      <button type="button" data-tab="exceptions">예외 처리 (9)</button>
+      <button type="button" data-tab="bom">하드웨어 품목 · 1대 기준 (6)</button>
+    </div>
+
+    <div class="tab-panel active" id="tab-modules">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>모듈</th><th>실행 위치</th><th>입력</th><th>출력</th><th>핵심 구현</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="cell-accent mono">인식 (gesture)</td><td class="mono">PC/Pi</td><td>웹캠 프레임</td><td>프레임별 클래스(1/2/3/손바닥/없음) + 객체 네모칸</td><td>MediaPipe Hands 랜드마크 21점 + 객체 바운딩 박스 거리 추적</td></tr>
+            <tr><td class="cell-accent mono">판단 (controller)</td><td class="mono">PC/Pi</td><td>인식 결과, 근접 거리, 로봇 응답</td><td>로봇 명령, UI 상태</td><td>7-상태 머신 + 홀드 타이머(1초) + 근접 임계값 파지 + 타임아웃</td></tr>
+            <tr><td class="cell-accent mono">통신 (link)</td><td class="mono">PC/Pi ↔ micro:bit</td><td>명령 문자열</td><td>ACK/완료/오류 문자열</td><td>USB 시리얼 115200bps, 줄 단위 텍스트</td></tr>
+            <tr><td class="cell-accent mono">로봇 제어 (robot)</td><td class="mono">micro:bit V2</td><td>명령</td><td>서보 각도, 응답</td><td>자세 프리셋(중립/트레이 N/슈트/잡기/펼침), 5지 각도 한계 클램프</td></tr>
+            <tr><td class="cell-accent mono">센서·인계 (handover)</td><td class="mono">micro:bit V2</td><td>초음파 거리, WonderCam</td><td>손 근접 이벤트, 트레이 비어 있음</td><td>거리 임계값(15cm) + 연속 3회 감지 필터</td></tr>
+            <tr><td class="cell-accent mono">UI·로깅</td><td class="mono">PC</td><td>모든 이벤트</td><td>3D 와이어프레임·비전 오버레이, CSV 로그</td><td>실시간 5지 접힘·공 궤적·지표 계산용 타임스탬프</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-protocol">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>명령</th><th>의미</th><th>정상 응답</th><th>오류 응답</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="cell-accent mono">SHOW,N</td><td>LED에 숫자 N 표시 + 비프</td><td class="cell-pass mono">ACK</td><td class="mono">—</td></tr>
+            <tr><td class="cell-accent mono">PICK,N</td><td>트레이 N으로 회전 후 5지 잡기</td><td class="cell-pass mono">DONE,PICK</td><td class="cell-warn mono">ERR,EMPTY / ERR,GRIP</td></tr>
+            <tr><td class="cell-accent mono">DELIVER</td><td>경사로 슈트 상단으로 180° 회전, 내밀기</td><td class="cell-pass mono">DONE,DELIVER</td><td class="mono">—</td></tr>
+            <tr><td class="cell-accent mono">RELEASE</td><td>5지 손 펼침 (슈트 투하 → 중력 이동)</td><td class="cell-pass mono">DONE,RELEASE</td><td class="mono">—</td></tr>
+            <tr><td class="cell-accent mono">RETURN,N</td><td>무응답 시 부품을 트레이 N에 되돌리기</td><td class="cell-pass mono">DONE,RETURN</td><td class="mono">—</td></tr>
+            <tr><td class="cell-accent mono">HOME</td><td>중립 자세 복귀</td><td class="cell-pass mono">DONE,HOME</td><td class="mono">—</td></tr>
+            <tr><td class="cell-accent mono">STOP</td><td>즉시 정지(현재 관절 각도 유지)</td><td class="cell-pass mono">ACK</td><td class="mono">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-exceptions">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>상황</th><th>감지 방법</th><th>대응 (알리고 → 안전한 자세로 → 대기 복귀)</th><th>담당 모듈</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>손이 화면에 없음 / 인식 신뢰도 낮음</td><td>신뢰도 &lt; 임계값</td><td>요청으로 인정하지 않음 (IDLE 유지)</td><td class="mono cell-accent">인식</td></tr>
+            <tr><td>홀드 중 숫자가 바뀜</td><td>연속 프레임 클래스 불일치</td><td>홀드 타이머 초기화</td><td class="mono cell-accent">판단</td></tr>
+            <tr><td>작업자가 취소</td><td>CONFIRM 중 손바닥 제스처</td><td>HOME → IDLE</td><td class="mono cell-accent">판단</td></tr>
+            <tr><td>트레이가 비어 있음</td><td>WonderCam 또는 잡기 후 손가락 각도 확인</td><td class="cell-warn">ERR,EMPTY → LED/화면 알림 → IDLE</td><td class="mono cell-accent">로봇 제어</td></tr>
+            <tr><td>잡기 실패</td><td>잡기 후 상태 확인</td><td class="cell-warn">1회 재시도, 또 실패하면 ERR,GRIP 알림</td><td class="mono cell-accent">로봇 제어</td></tr>
+            <tr><td>작업자가 받지 않음</td><td>HANDOVER에서 10초 동안 EVT,HAND 없음</td><td>RETURN,N → IDLE (슈트 전달 시 수령 확인 대기)</td><td class="mono cell-accent">판단</td></tr>
+            <tr><td>로봇 응답 없음</td><td>명령 응답 타임아웃</td><td class="cell-warn">STOP 전송, 화면에 오류 표시, 수동 복구</td><td class="mono cell-accent">통신</td></tr>
+            <tr><td>서보 걸림·과부하</td><td>소리·발열(수동 확인)</td><td>가동 범위 한계 각도로 클램프해 예방</td><td class="mono cell-accent">로봇 제어</td></tr>
+            <tr><td>비상 정지</td><td>micro:bit 버튼 A+B 또는 PC 비상정지</td><td class="cell-warn">즉시 STOP</td><td class="mono cell-warn">전체</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="tab-bom">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>품목</th><th>수량</th><th>비고</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="cell-accent"><strong>Hiwonder AiHand</strong></td><td class="mono">1</td><td>단일 로봇핸드 공용 사용 (서보 5개, 팬틸트 180°, 초음파·WonderCam 포함)</td></tr>
+            <tr><td class="cell-accent"><strong>micro:bit V2</strong></td><td class="mono">1 + 예비</td><td>AiHand에 미포함, 별도 구매</td></tr>
+            <tr><td><strong>전원 어댑터</strong></td><td class="mono">1</td><td>동봉품(7.4V 3A 표기). USB 전원만으로는 부족</td></tr>
+            <tr><td><strong>USB 웹캠 + 고정 스탠드</strong></td><td class="mono">1</td><td>손짓 요청 및 부품 네모칸 인식용</td></tr>
+            <tr><td><strong>라즈베리 파이 5 (4GB)</strong></td><td class="mono">선택 1</td><td>액티브 쿨러·공식 27W 전원 포함. 개발은 노트북으로</td></tr>
+            <tr><td><strong>부품 트레이 + 캡슐/공 + 경사로(슈트)</strong></td><td class="mono">3종 + 슈트 1</td><td>부품 트레이 3종, 중력 이동 경사로(슈트), 수령 트레이</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- Simulation Modules (classic scripts: works via both http:// and file://) -->
+<script src="sim/wireframe_3d.js"></script>
+<script src="sim/vision_sim.js"></script>
+<script src="sim/simulation_engine.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  const H3D = window.AiHand3D;
+  const VIS = window.AiHandVision;
+  const SIM = window.AiHandSim;
+
+  // DOM References
+  const wfCanvas = document.getElementById('wireframeCanvas');
+  const wfCtx = wfCanvas.getContext('2d');
+  const visCanvas = document.getElementById('visionCanvas');
+  const visCtx = visCanvas.getContext('2d');
+
+  const webcamFeed = document.getElementById('webcamFeed');
+  const browserWebcam = document.getElementById('browserWebcam');
+  const camPlaceholder = document.getElementById('camPlaceholder');
+  const camWinStatus = document.getElementById('camWinStatus');
+  const camFileInput = document.getElementById('camFileInput');
+  const camDropZone = document.getElementById('camDropZone');
+
+  const connBadge = document.getElementById('connBadge');
+  const autoDemoBtn = document.getElementById('autoDemoBtn');
+  const proxQuickBtn = document.getElementById('proxQuickBtn');
+  const resetAllBtn = document.getElementById('resetAllBtn');
+  const resumeBtn = document.getElementById('resumeBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const trailToggleBtn = document.getElementById('trailToggleBtn');
+  const stageStepLabel = document.getElementById('stageStepLabel');
+
+  const simStateBadge = document.getElementById('simStateBadge');
+  const simMsg = document.getElementById('simMsg');
+  const simDot = document.getElementById('simDot');
+  const simBar = document.getElementById('simBar');
+  const simTimer = document.getElementById('simTimer');
+  const serialLog = document.getElementById('serialLog');
+
+  const verdictBadge = document.getElementById('verdictBadge');
+  const verdictReason = document.getElementById('verdictReason');
+  const verdictDist = document.getElementById('verdictDist');
+  const verdictBar = document.getElementById('verdictBar');
+  const fingerChips = document.querySelectorAll('#fingerRow .finger-chip');
+  const camFpsText = document.getElementById('camFpsText');
+
+  const proxApproachBtn = document.getElementById('proxApproachBtn');
+  const proxWatchBtn = document.getElementById('proxWatchBtn');
+  const proxThresholdSlider = document.getElementById('proxThresholdSlider');
+  const proxThresholdVal = document.getElementById('proxThresholdVal');
+  const autoHandoverChk = document.getElementById('autoHandoverChk');
+  const speedSelect = document.getElementById('speedSelect');
+  const modeTagRight = document.getElementById('modeTagRight');
+  const usLiveLabel = document.getElementById('usLiveLabel');
+
+  // Build 5x5 micro:bit LED DOM cells
+  const ledMatrixEl = document.getElementById('ledMatrix');
+  const ledCells = [];
+  for (let i = 0; i < 25; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'led-cell';
+    ledMatrixEl.appendChild(cell);
+    ledCells.push(cell);
+  }
+  const ledLabel = document.getElementById('ledLabel');
+
+  // Serial console helper
+  function appendLog(dir, text) {
+    const t = new Date().toTimeString().slice(0, 8);
+    const cls = dir === 'TX' ? 'tx' : dir === 'RX' ? 'rx' : dir === 'ERR' ? 'err' : 'sys';
+    const row = document.createElement('div');
+    row.className = 'log-row';
+    row.innerHTML = `<span class="log-t">${t}</span><span class="log-d ${cls}">[${dir}]</span><span></span>`;
+    row.lastChild.textContent = text;
+    serialLog.appendChild(row);
+    while (serialLog.children.length > 100) serialLog.removeChild(serialLog.firstChild);
+    serialLog.scrollTop = serialLog.scrollHeight;
+  }
+
+  // Instantiate Organic Simulator
+  const world = new SIM.AiHandSimulator({
+    onLog: (dir, text) => appendLog(dir, text),
+    onBackendAction: (action, part) => postBackendAction(action, part),
+  });
+
+  appendLog('SYS', '3D 와이어프레임 로봇손 & AI 비전 시뮬레이터 초기화 완료 (60FPS)');
+  appendLog('SYS', '공 네모칸을 클릭해 요청하거나, 드래그하여 로봇손 가까이 가져가 자동 파지를 체험해 보세요.');
+
+  // Orbit Camera state (smoothly interpolates toward targetCam)
+  let activeCamPreset = 'iso';
+  const cam = {
+    yaw: H3D.CAM_PRESETS.iso.yaw,
+    pitch: H3D.CAM_PRESETS.iso.pitch,
+    dist: H3D.CAM_PRESETS.iso.dist,
+    target: { ...H3D.CAM_PRESETS.iso.target },
+    fov: H3D.CAM_PRESETS.iso.fov,
+  };
+  const camTarget = {
+    yaw: cam.yaw,
+    pitch: cam.pitch,
+    dist: cam.dist,
+    target: { ...cam.target },
+  };
+
+  function setCameraPreset(name) {
+    const p = H3D.CAM_PRESETS[name];
+    if (!p) return;
+    activeCamPreset = name;
+    camTarget.yaw = p.yaw;
+    camTarget.pitch = p.pitch;
+    camTarget.dist = p.dist;
+    camTarget.target = { ...p.target };
+    document.querySelectorAll('[data-cam]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.cam === name);
+    });
+  }
+
+  document.querySelectorAll('[data-cam]').forEach((btn) => {
+    btn.addEventListener('click', () => setCameraPreset(btn.dataset.cam));
+  });
+
+  trailToggleBtn.addEventListener('click', () => {
+    world.showTrail = !world.showTrail;
+    trailToggleBtn.classList.toggle('active', world.showTrail);
+    trailToggleBtn.textContent = world.showTrail ? '궤적 ON' : '궤적 OFF';
+  });
+
+  // Camera window view mode: 'sim' | 'webcam' | 'image'
+  let camViewMode = 'sim';
+  let browserStream = null;
+  let staticTestImageActive = false;
+
+  function setCamViewMode(mode) {
+    camViewMode = mode;
+    document.querySelectorAll('[data-cam-mode]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.camMode === mode);
+    });
+
+    if (mode === 'sim') {
+      stopBrowserWebcam();
+      visCanvas.style.display = 'block';
+      webcamFeed.style.display = 'none';
+      browserWebcam.style.display = 'none';
+      camPlaceholder.style.display = 'none';
+      camWinStatus.textContent = 'SIM · LIVE';
+      camWinStatus.className = 'win-status mono';
+    } else if (mode === 'webcam') {
+      visCanvas.style.display = 'none';
+      if (world.liveMode && lastBackendWebcam && lastBackendWebcam.running) {
+        webcamFeed.style.display = 'block';
+        browserWebcam.style.display = 'none';
+        camPlaceholder.style.display = 'none';
+      } else if (browserStream) {
+        browserWebcam.style.display = 'block';
+        webcamFeed.style.display = 'none';
+        camPlaceholder.style.display = 'none';
+      } else {
+        webcamFeed.style.display = 'none';
+        browserWebcam.style.display = 'none';
+        camPlaceholder.style.display = 'flex';
+        document.getElementById('camPlaceholderTitle').textContent = '실물 웹캠 대기 중';
+        camWinStatus.textContent = 'CAM OFF';
+        camWinStatus.className = 'win-status mono';
+      }
+    } else if (mode === 'image') {
+      stopBrowserWebcam();
+      visCanvas.style.display = 'none';
+      browserWebcam.style.display = 'none';
+      if (staticTestImageActive) {
+        webcamFeed.style.display = 'block';
+        camPlaceholder.style.display = 'none';
+      } else {
+        webcamFeed.style.display = 'none';
+        camPlaceholder.style.display = 'flex';
+        document.getElementById('camPlaceholderTitle').textContent = '손 이미지 판별 (MediaPipe 21점)';
+      }
+    }
+  }
+
+  document.querySelectorAll('[data-cam-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => setCamViewMode(btn.dataset.camMode));
+  });
+  document.getElementById('backToSimCamBtn').addEventListener('click', () => setCamViewMode('sim'));
+
+  function stopBrowserWebcam() {
+    if (browserStream) {
+      browserStream.getTracks().forEach((t) => t.stop());
+      browserStream = null;
+      browserWebcam.srcObject = null;
+    }
+  }
+
+  async function startRealWebcam() {
+    setCamViewMode('webcam');
+    if (world.liveMode) {
+      staticTestImageActive = false;
+      postBackendAction('webcam_toggle');
+      return;
+    }
+    // Standalone browser getUserMedia fallback
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try {
+        browserStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+        browserWebcam.srcObject = browserStream;
+        browserWebcam.style.display = 'block';
+        camPlaceholder.style.display = 'none';
+        camWinStatus.textContent = 'BROWSER CAM';
+        camWinStatus.className = 'win-status pass mono';
+        appendLog('SYS', '브라우저 웹캠 스트림 연결됨 (전체 손짓 자동 분류는 python app.py 실행 시 활성화됩니다)');
+      } catch (err) {
+        appendLog('ERR', '웹캠을 열 수 없습니다 — 가상 비전 카메라 모드를 사용하세요.');
+      }
+    } else {
+      appendLog('SYS', '실물 웹캠 MediaPipe 인식은 python app.py 실행 시 동작합니다.');
+    }
+  }
+
+  document.getElementById('camStartInlineBtn').addEventListener('click', startRealWebcam);
+  document.getElementById('camUploadInlineBtn').addEventListener('click', () => camFileInput.click());
+
+  async function testImageFile(file) {
+    if (!file) return;
+    setCamViewMode('image');
+    if (!world.liveMode) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        staticTestImageActive = true;
+        webcamFeed.src = reader.result;
+        webcamFeed.style.display = 'block';
+        camPlaceholder.style.display = 'none';
+        verdictBadge.textContent = '미리보기';
+        verdictBadge.className = 'verdict-badge accent mono';
+        verdictReason.textContent = 'MediaPipe 21점 서버 판별은 python app.py 실행 시 자동 수행됩니다.';
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+    const buf = await file.arrayBuffer();
+    const res = await fetch('/api/test_image', { method: 'POST', body: buf });
+    const data = await res.json();
+    if (data && data.ok) {
+      staticTestImageActive = true;
+      webcamFeed.src = data.image_data_url;
+      webcamFeed.style.display = 'block';
+      camPlaceholder.style.display = 'none';
+      applyWebcamVerdict(data.passed, data.label, data.confidence, data.reason, data.fingers);
+    }
+  }
+
+  camFileInput.addEventListener('change', (e) => {
+    testImageFile(e.target.files[0]);
+    camFileInput.value = '';
+  });
+  camDropZone.addEventListener('dragover', (e) => e.preventDefault());
+  camDropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      testImageFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  // Top & Control Buttons
+  autoDemoBtn.addEventListener('click', () => {
+    world.autoDemo = !world.autoDemo;
+    autoDemoBtn.classList.toggle('active', world.autoDemo);
+    autoDemoBtn.textContent = world.autoDemo ? '⏸ 자동 데모 실행 중' : '▶ 자동 시나리오 데모';
+    if (world.autoDemo) {
+      world.emergencyStopped = false;
+      world.manualServo = false;
+      world._autoDemoCooldown = 0.25;
+      appendLog('SYS', '자동 시나리오 연속 데모 시작 (손짓 1·2·3 + 근접 자동 잡기 순환)');
+    }
+  });
+
+  function launchProxDemo() {
+    setCamViewMode('sim');
+    world.launchProximityApproach();
+    syncProxButtons();
+  }
+  proxQuickBtn.addEventListener('click', launchProxDemo);
+  proxApproachBtn.addEventListener('click', launchProxDemo);
+
+  proxWatchBtn.addEventListener('click', () => {
+    world.toggleProximityMode();
+    syncProxButtons();
+  });
+
+  function syncProxButtons() {
+    proxWatchBtn.textContent = world.proximityMode ? '근접 대기 ON' : '근접 대기 OFF';
+    proxWatchBtn.classList.toggle('cyan', world.proximityMode);
+    proxWatchBtn.classList.toggle('active', world.proximityMode);
+  }
+
+  proxThresholdSlider.addEventListener('input', (e) => {
+    world.graspThresholdCm = parseFloat(e.target.value);
+    proxThresholdVal.textContent = `${world.graspThresholdCm.toFixed(1)}cm`;
+  });
+
+  autoHandoverChk.addEventListener('change', (e) => {
+    world.autoHandover = e.target.checked;
+  });
+  speedSelect.addEventListener('change', (e) => {
+    world.speed = parseFloat(e.target.value) || 1.0;
+  });
+
+  stopBtn.addEventListener('click', () => {
+    world.triggerEmergencyStop();
+    autoDemoBtn.classList.remove('active');
+    autoDemoBtn.textContent = '▶ 자동 시나리오 데모';
+  });
+  resumeBtn.addEventListener('click', () => {
+    world.resumeFromStop();
+    if (world.liveMode) postBackendAction('cancel');
+  });
+
+  function performResetAll() {
+    world.resetAll();
+
+    // Reset UI controls & toggles to initial defaults
+    autoDemoBtn.classList.remove('active');
+    autoDemoBtn.textContent = '▶ 자동 시나리오 데모';
+    syncProxButtons();
+    proxThresholdSlider.value = '8.5';
+    proxThresholdVal.textContent = '8.5cm';
+    autoHandoverChk.checked = true;
+    speedSelect.value = '1';
+    trailToggleBtn.classList.add('active');
+    trailToggleBtn.textContent = '궤적 ON';
+    setCameraPreset('iso');
+    setCamViewMode('sim');
+    staticTestImageActive = false;
+
+    // Reset manual servo sliders to HOME
+    slPan.value = '90';
+    slTilt.value = '90';
+    slGripAll.value = '12';
+    document.getElementById('slPanVal').textContent = '90°';
+    document.getElementById('slTiltVal').textContent = '90°';
+    document.getElementById('slGripAllVal').textContent = '12%';
+    slFingers.forEach((s, idx) => {
+      s.value = '12';
+      document.getElementById(`slF${idx}Val`).textContent = '12%';
+    });
+
+    // Clear console & reset cached log signature
+    lastLogSig = '';
+    lastBackendMetrics = null;
+    serialLog.innerHTML = '';
+    appendLog('SYS', '모든 시나리오 · 재고 · 관절 각도 · 궤적 · KPI가 초기 상태로 리셋되었습니다.');
+    syncDomHud();
+  }
+
+  resetAllBtn.addEventListener('click', performResetAll);
+
+  document.getElementById('refillStockBtn').addEventListener('click', () => world.refillStock());
+
+  // Global button callbacks
+  window.uiGesture = (n) => world.triggerGesture(n);
+  window.uiCancel = () => world.triggerCancel();
+  window.uiHand = () => world.triggerHandover();
+  window.uiReturn = () => world.triggerReturn();
+  window.uiError = (code) => world.triggerError(code);
+  window.uiFalseTrigger = () => world.markFalseTrigger();
+  window.uiResetAll = performResetAll;
+
+  // Aux Tabs & Bottom Plan Tabs
+  document.querySelectorAll('.aux-tabs button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.aux-tabs button').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.aux-pane').forEach((p) => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('aux-' + btn.dataset.aux).classList.add('active');
+    });
+  });
+
+  document.querySelectorAll('.tab-strip button').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-strip button').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // Manual Servo Sliders (Real-time Wireframe Finger Folding Lab)
+  const slPan = document.getElementById('slPan');
+  const slTilt = document.getElementById('slTilt');
+  const slGripAll = document.getElementById('slGripAll');
+  const slFingers = document.querySelectorAll('.sl-finger');
+
+  slPan.addEventListener('input', () => {
+    world.setManualPose({ pan: Number(slPan.value) });
+    document.getElementById('slPanVal').textContent = `${slPan.value}°`;
+  });
+  slTilt.addEventListener('input', () => {
+    world.setManualPose({ tilt: Number(slTilt.value) });
+    document.getElementById('slTiltVal').textContent = `${slTilt.value}°`;
+  });
+  slGripAll.addEventListener('input', () => {
+    const pct = Number(slGripAll.value);
+    world.setManualPose({ gripAll: pct / 100 });
+    document.getElementById('slGripAllVal').textContent = `${pct}%`;
+    slFingers.forEach((s, idx) => {
+      s.value = pct;
+      document.getElementById(`slF${idx}Val`).textContent = `${pct}%`;
+    });
+  });
+  slFingers.forEach((sl) => {
+    sl.addEventListener('input', () => {
+      const idx = Number(sl.dataset.fi);
+      const pct = Number(sl.value);
+      world.setManualPose({ fingerIndex: idx, value: pct / 100 });
+      document.getElementById(`slF${idx}Val`).textContent = `${pct}%`;
+    });
+  });
+
+  window.presetManualPose = function (preset) {
+    if (preset === 'auto') {
+      world.manualServo = false;
+      appendLog('SYS', '자동 기구학 제어 모드로 복귀했습니다.');
+      return;
+    }
+    const map = {
+      open: [0.06, 0.05, 0.05, 0.06, 0.08],
+      fist: [0.90, 0.94, 0.96, 0.94, 0.90],
+      '1': [0.82, 0.05, 0.92, 0.92, 0.90],
+      '2': [0.82, 0.05, 0.05, 0.92, 0.90],
+      '3': [0.82, 0.05, 0.05, 0.06, 0.90],
+    };
+    const arr = map[preset] || map.open;
+    world.manualServo = true;
+    world.targetPose.pan = 90;
+    world.targetPose.tilt = 90;
+    world.targetPose.wristPitch = 0;
+    world.targetPose.fingers = arr.slice();
+    slPan.value = 90;
+    slTilt.value = 90;
+    document.getElementById('slPanVal').textContent = '90°';
+    document.getElementById('slTiltVal').textContent = '90°';
+    arr.forEach((v, i) => {
+      const pct = Math.round(v * 100);
+      slFingers[i].value = pct;
+      document.getElementById(`slF${i}Val`).textContent = `${pct}%`;
+    });
+  };
+
+  // Interactive Pointer Handling on 3D Wireframe Canvas (Orbit + Ball Drag!)
+  let lastWfRender = { screenBalls: [] };
+  let lastVisRender = { detections: [] };
+  let orbitDragging = false;
+  let lastPointer = { x: 0, y: 0 };
+
+  function canvasCoords(canvas, e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      w: rect.width,
+      h: rect.height,
+    };
+  }
+
+  wfCanvas.addEventListener('pointerdown', (e) => {
+    const pt = canvasCoords(wfCanvas, e);
+    lastPointer = { x: pt.x, y: pt.y };
+    wfCanvas.setPointerCapture(e.pointerId);
+
+    // Check if user grabbed a ball directly in 3D view!
+    if (world.state === 'IDLE') {
+      for (const sb of lastWfRender.screenBalls) {
+        if (Math.hypot(pt.x - sb.cx, pt.y - sb.cy) <= Math.max(22, sb.r + 10)) {
+          if (world.startDragBall(sb.ball.id)) {
+            syncProxButtons();
+            wfCanvas.classList.add('dragging');
+            return;
+          }
+        }
+      }
+    }
+    orbitDragging = true;
+    wfCanvas.classList.add('dragging');
+  });
+
+  wfCanvas.addEventListener('pointermove', (e) => {
+    const pt = canvasCoords(wfCanvas, e);
+    if (world.draggingBallId != null) {
+      const wp = H3D.unprojectToPlaneY(pt.x, pt.y, cam, pt.w, pt.h, H3D.BALL_RADIUS + 0.2);
+      if (wp) world.moveDraggedBall(wp.x, wp.z);
+      return;
+    }
+    if (orbitDragging) {
+      const dx = pt.x - lastPointer.x;
+      const dy = pt.y - lastPointer.y;
+      lastPointer = { x: pt.x, y: pt.y };
+      camTarget.yaw -= dx * 0.008;
+      camTarget.pitch = H3D.clamp(camTarget.pitch + dy * 0.007, 0.08, 1.42);
+    }
+  });
+
+  function releaseWfPointer() {
+    orbitDragging = false;
+    world.endDragBall();
+    wfCanvas.classList.remove('dragging');
+  }
+  wfCanvas.addEventListener('pointerup', releaseWfPointer);
+  wfCanvas.addEventListener('pointercancel', releaseWfPointer);
+
+  wfCanvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    camTarget.dist = H3D.clamp(camTarget.dist + e.deltaY * 0.035, 22, 90);
+  }, { passive: false });
+
+  // Interactive Pointer Handling on Vision Camera Canvas (Click Bounding Box or Drag Ball!)
+  let visPointerDown = null;
+  let visMoved = false;
+
+  visCanvas.addEventListener('pointerdown', (e) => {
+    if (camViewMode !== 'sim') return;
+    const pt = canvasCoords(visCanvas, e);
+    visPointerDown = pt;
+    visMoved = false;
+    visCanvas.setPointerCapture(e.pointerId);
+
+    for (const det of lastVisRender.detections) {
+      if (pt.x >= det.x1 - 8 && pt.x <= det.x2 + 8 && pt.y >= det.y1 - 8 && pt.y <= det.y2 + 8) {
+        if (world.state === 'IDLE') {
+          world.startDragBall(det.ball.id);
+          syncProxButtons();
+        }
+        return;
+      }
+    }
+  });
+
+  visCanvas.addEventListener('pointermove', (e) => {
+    if (camViewMode !== 'sim') return;
+    const pt = canvasCoords(visCanvas, e);
+    if (world.draggingBallId != null) {
+      if (visPointerDown && Math.hypot(pt.x - visPointerDown.x, pt.y - visPointerDown.y) > 5) {
+        visMoved = true;
+      }
+      if (visMoved) {
+        const wp = H3D.unprojectToPlaneY(pt.x, pt.y, H3D.CAM_PRESETS.vision, pt.w, pt.h, H3D.BALL_RADIUS + 0.2);
+        if (wp) world.moveDraggedBall(wp.x, wp.z);
+      }
+      return;
+    }
+    // Hover cursor feedback over bounding boxes
+    let hovering = false;
+    for (const det of lastVisRender.detections) {
+      if (pt.x >= det.x1 - 4 && pt.x <= det.x2 + 4 && pt.y >= det.y1 - 4 && pt.y <= det.y2 + 4) {
+        hovering = true;
+        break;
+      }
+    }
+    visCanvas.style.cursor = hovering ? 'pointer' : 'default';
+  });
+
+  visCanvas.addEventListener('pointerup', (e) => {
+    if (camViewMode !== 'sim') return;
+    const draggedId = world.draggingBallId;
+    world.endDragBall();
+    // Short click on a bounding box triggers standard gesture request for that ball!
+    if (draggedId != null && !visMoved && world.state === 'IDLE') {
+      world.resetBallToTray(draggedId);
+      world.proximityMode = false;
+      syncProxButtons();
+      world.triggerGesture(draggedId);
+    }
+    visPointerDown = null;
+  });
+
+  // Live Backend Sync (when running via `python app.py`)
+  let lastLogSig = '';
+  let lastBackendWebcam = null;
+  let lastBackendMetrics = null;
+
+  async function postBackendAction(action, part) {
+    try {
+      const res = await fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, part: part != null ? part : null }),
+      });
+      const data = await res.json();
+      if (data && data.state) applyBackendState(data);
+    } catch (_) {
+      // Standalone mode
+    }
+  }
+
+  function applyWebcamVerdict(passed, label, conf, reason, fingers) {
+    const pct = Math.round((Number(conf || 0)) * 100);
+    verdictDist.textContent = `신뢰도 ${pct}%`;
+    verdictBar.style.width = `${Math.min(100, pct)}%`;
+    verdictBar.style.background = passed ? 'var(--pass)' : 'var(--warning)';
+    verdictBadge.textContent = passed ? `인식 성공 · ${label}` : '인식 실패';
+    verdictBadge.className = `verdict-badge ${passed ? 'pass' : 'fail'} mono`;
+    verdictReason.textContent = reason || '';
+    const fArr = Array.isArray(fingers) ? fingers : [false, false, false, false, false];
+    fingerChips.forEach((chip, i) => chip.classList.toggle('on', Boolean(fArr[i])));
+  }
+
+  function applyBackendState(snap) {
+    world.applyBackendSnapshot(snap);
+
+    connBadge.innerHTML = `<i class="dot"></i>${snap.is_mock ? 'LIVE · MOCK MCU' : 'LIVE · USB SERIAL'}`;
+    connBadge.className = 'mp-chip mono';
+
+    if (snap.logs) {
+      const last = snap.logs.length ? snap.logs[snap.logs.length - 1] : null;
+      const sig = `${snap.logs.length}|${last ? last.time + last.text : ''}`;
+      if (sig !== lastLogSig) {
+        lastLogSig = sig;
+        serialLog.innerHTML = '';
+        for (const item of snap.logs) {
+          const cls = item.dir === 'TX' ? 'tx' : item.dir === 'RX' ? 'rx' : item.dir === 'ERR' ? 'err' : 'sys';
+          const row = document.createElement('div');
+          row.className = 'log-row';
+          row.innerHTML = `<span class="log-t">${item.time}</span><span class="log-d ${cls}">[${item.dir}]</span><span></span>`;
+          row.lastChild.textContent = item.text;
+          serialLog.appendChild(row);
+        }
+        serialLog.scrollTop = serialLog.scrollHeight;
+      }
+    }
+
+    if (snap.metrics) {
+      lastBackendMetrics = snap.metrics;
+    }
+
+    if (snap.webcam) {
+      lastBackendWebcam = snap.webcam;
+      if (camViewMode === 'webcam') {
+        if (snap.webcam.running) {
+          if (!webcamFeed.src || !webcamFeed.src.includes('/api/video')) {
+            webcamFeed.src = '/api/video?t=' + Date.now();
+          }
+          webcamFeed.style.display = 'block';
+          camPlaceholder.style.display = 'none';
+          camWinStatus.textContent = `CAM LIVE · ${snap.webcam.label}`;
+          camWinStatus.className = `win-status ${snap.webcam.passed ? 'pass' : 'accent'} mono`;
+          applyWebcamVerdict(snap.webcam.passed, snap.webcam.label, snap.webcam.confidence, snap.webcam.reason, snap.webcam.fingers);
+        } else if (!staticTestImageActive) {
+          webcamFeed.style.display = 'none';
+          webcamFeed.removeAttribute('src');
+          camPlaceholder.style.display = 'flex';
+        }
+      }
+    }
+  }
+
+  const canPollBackend =
+    (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
+    window.self === window.top;
+
+  async function pollBackend() {
+    if (!canPollBackend) return;
+    try {
+      const res = await fetch('/api/state', { cache: 'no-store' });
+      if (!res.ok) return;
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) return;
+      const snap = await res.json();
+      if (snap && snap.state) applyBackendState(snap);
+    } catch (_) {
+      // Remain in standalone virtual sim
+    }
+  }
+
+  if (canPollBackend) {
+    pollBackend();
+    setInterval(pollBackend, 120);
+  }
+
+  // HiDPI Canvas Sizing Helper
+  function syncCanvasSize(canvas) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.getBoundingClientRect();
+    const w = Math.max(100, Math.round(rect.width));
+    const h = Math.max(100, Math.round(rect.height));
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+    }
+    return { w, h, dpr };
+  }
+
+  // DOM HUD Sync (throttled neatly to ~15Hz so canvas stays locked at 60fps)
+  let uiAccum = 0;
+  let fpsSmooth = 60.0;
+
+  function syncDomHud() {
+    // 1. State Machine & Progress Bar
+    const st = world.state;
+    const tone = world.emergencyStopped ? 'warn' : world.tone;
+    const statusCls = world.emergencyStopped
+      ? 'warn'
+      : st === 'IDLE'
+        ? ''
+        : (st === 'HANDOVER' || st === 'PICK' || st === 'DELIVER' ? 'pass' : 'accent');
+    simStateBadge.textContent = world.emergencyStopped ? 'STOP' : st;
+    simStateBadge.className = `win-status ${statusCls} mono`;
+    simMsg.textContent = world.message;
+    simDot.className = 'dot ' + (world.emergencyStopped ? 'warn' : (st === 'IDLE' ? '' : statusCls));
+    simBar.style.width = `${world.progress || 0}%`;
+    simBar.style.background = world.emergencyStopped ? 'var(--warning)' : (st === 'HANDOVER' ? 'var(--pass)' : 'var(--accent)');
+    simTimer.textContent = `${Number(world.elapsed || 0).toFixed(1)}s`;
+    resumeBtn.hidden = !world.emergencyStopped;
+
+    const stepLabels = {
+      IDLE: world.proximityMode ? 'PROXIMITY · 근접 감시' : 'IDLE · 대기',
+      REQUEST: `REQUEST · 손짓 ${world.targetPart || ''} 홀드`,
+      CONFIRM: `CONFIRM · SHOW,${world.targetPart || ''}`,
+      PICK: `PICK · 5지 파지 (#${world.targetPart || ''})`,
+      DELIVER: world.deliverSubstep === 'RELEASE' ? 'RELEASE · 슈트 투하' : 'DELIVER · 슈트 이동',
+      HANDOVER: 'HANDOVER · 초음파 수령',
+      RETURN: `RETURN · 트레이 ${world.targetPart || ''} 반납`,
+    };
+    stageStepLabel.textContent = world.emergencyStopped ? 'STOP · 비상 정지' : (stepLabels[st] || st);
+    stageStepLabel.className = `win-status ${statusCls} mono`;
+
+    document.querySelectorAll('.sm-cell').forEach((cell) => {
+      cell.classList.remove('idle-active', 'active', 'pass-active', 'err');
+      if (cell.dataset.state === st) {
+        if (tone === 'warn') cell.classList.add('err');
+        else if (st === 'IDLE') cell.classList.add('idle-active');
+        else if (st === 'HANDOVER') cell.classList.add('pass-active');
+        else cell.classList.add('active');
+      }
+    });
+
+    // 2. Ball Journey Progress Track
+    const activeBall = world.getActiveBall() || world.getFocusBall();
+    const zoneOrder = ['TRAY', 'GRIP', 'CHUTE', 'BAY', 'HANDED'];
+    const normZone = !activeBall
+      ? 'TRAY'
+      : activeBall.zone === 'APPROACH'
+        ? 'TRAY'
+        : activeBall.zone === 'AIR'
+          ? 'CHUTE'
+          : activeBall.zone;
+    const zIdx = zoneOrder.indexOf(normZone);
+
+    document.querySelectorAll('#ballTrack .bt-node').forEach((node, idx) => {
+      node.classList.toggle('active', idx === zIdx);
+      node.classList.toggle('done', idx < zIdx);
+    });
+    document.getElementById('btTrayText').textContent = activeBall ? `#${activeBall.id}` : '대기';
+    document.getElementById('btGripText').textContent = world.heldBallId ? '파지됨' : (zIdx > 1 ? '완료' : '—');
+    document.getElementById('btChuteText').textContent = normZone === 'CHUTE' ? '이동 중' : (zIdx > 2 ? '통과' : '—');
+    document.getElementById('btBayText').textContent = normZone === 'BAY' ? '도착' : (zIdx > 3 ? '완료' : '—');
+    document.getElementById('btHandText').textContent = normZone === 'HANDED' ? '수령됨' : '—';
+
+    // 3. Joint Meters (PAN, TILT, 5 Fingers Real-Time Curl %)
+    document.getElementById('valPan').textContent = `${Math.round(world.pose.pan)}°`;
+    document.getElementById('barPan').style.width = `${(world.pose.pan / 180) * 100}%`;
+    document.getElementById('valTilt').textContent = `${Math.round(world.pose.tilt)}°`;
+    document.getElementById('barTilt').style.width = `${((world.pose.tilt - 20) / 140) * 100}%`;
+    for (let i = 0; i < 5; i++) {
+      const pct = Math.round(world.pose.fingers[i] * 100);
+      document.getElementById(`valF${i}`).textContent = `${pct}%`;
+      const bar = document.getElementById(`barF${i}`);
+      bar.style.width = `${pct}%`;
+      bar.className = pct > 52 ? 'curled' : '';
+    }
+
+    // 4. micro:bit 5x5 LED Matrix
+    const rows = world.getLedMatrix();
+    for (let r = 0; r < 5; r++) {
+      for (let c = 0; c < 5; c++) {
+        ledCells[r * 5 + c].classList.toggle('on', rows[r][c] === '1');
+      }
+    }
+    ledLabel.textContent = `LED: ${world.ledKey}`;
+
+    // 5. Camera Verdict Panel (in SIM mode)
+    if (camViewMode === 'sim') {
+      const focus = world.getFocusBall();
+      const dist = focus ? focus.distToHand : 99;
+      const inRange = focus && dist <= world.graspThresholdCm && world.heldBallId !== focus.id;
+
+      verdictDist.textContent = focus ? `최단: ${dist.toFixed(1)}cm` : '객체 없음';
+      camFpsText.textContent = `${fpsSmooth.toFixed(1)} FPS`;
+
+      if (world.emergencyStopped) {
+        verdictBadge.textContent = '비상 정지 · STOP';
+        verdictBadge.className = 'verdict-badge fail mono';
+        verdictReason.textContent = '로봇 관절 잠금 상태 — 대기 복귀를 눌러 재개하세요.';
+        verdictBar.style.width = '100%';
+        verdictBar.style.background = 'var(--warning)';
+      } else if (world.heldBallId) {
+        verdictBadge.textContent = `파지 추적 · #${world.heldBallId}`;
+        verdictBadge.className = 'verdict-badge pass mono';
+        verdictReason.textContent = `공 #${world.heldBallId} 파지 유지 중 — 경사로 슈트 이송 경로 추적`;
+        verdictBar.style.width = '99%';
+        verdictBar.style.background = 'var(--pass)';
+      } else if (inRange) {
+        verdictBadge.textContent = `근접 잠금 · GRASP`;
+        verdictBadge.className = 'verdict-badge pass mono';
+        verdictReason.textContent = `객체 #${focus.id} 임계 거리(${world.graspThresholdCm.toFixed(1)}cm) 이내 진입 → 자동 파지!`;
+        verdictBar.style.width = '100%';
+        verdictBar.style.background = 'var(--pass)';
+      } else if (world.virtualGesture.label !== 'NONE') {
+        verdictBadge.textContent = `손짓 인식 · ${world.virtualGesture.label}`;
+        verdictBadge.className = `verdict-badge ${world.virtualGesture.label === 'PALM' ? 'fail' : 'pass'} mono`;
+        verdictReason.textContent = world.virtualGesture.reason;
+        verdictBar.style.width = `${Math.round(world.virtualGesture.confidence * 100)}%`;
+        verdictBar.style.background = 'var(--pass)';
+      } else {
+        verdictBadge.textContent = world.proximityMode ? '근접 감시 활성' : '네모칸 감시 중';
+        verdictBadge.className = `verdict-badge ${world.proximityMode ? 'accent' : ''} mono`;
+        verdictReason.textContent = '공 네모칸 클릭(요청) 또는 로봇손 가까이 드래그(자동 파지)';
+        verdictBar.style.width = `${Math.max(15, Math.min(100, Math.round((24 - dist) / 18 * 100)))}%`;
+        verdictBar.style.background = world.proximityMode ? 'var(--accent)' : '#7C848E';
+      }
+
+      // Finger chips reflect virtual worker gesture when active, otherwise robot hand fold state!
+      const showWorker = world.virtualGesture.label !== 'NONE';
+      fingerChips.forEach((chip, i) => {
+        const on = showWorker
+          ? world.virtualGesture.fingersSmooth[i] > 0.55
+          : world.pose.fingers[i] > 0.50;
+        chip.classList.toggle('on', on);
+      });
+    }
+
+    // 6. Active Architecture Module Highlights & Inventory
+    document.querySelectorAll('#aux-arch .panel-row').forEach((row) => {
+      row.classList.toggle('mod-active', world.activeModules.has(row.dataset.mod));
+    });
+    modeTagRight.textContent = world.manualServo ? 'MANUAL SERVO' : 'AUTO KINEMATICS';
+    usLiveLabel.textContent = `${world.ultrasonicCm.toFixed(1)} cm${world.ultrasonicCm <= 15 ? ' (감지)' : ''}`;
+    document.getElementById('inv1').textContent = world.stock[1];
+    document.getElementById('inv2').textContent = world.stock[2];
+    document.getElementById('inv3').textContent = world.stock[3];
+
+    // 7. KPI Strip
+    const m = world.liveMode && lastBackendMetrics ? lastBackendMetrics : world.getLocalKpis();
+    document.getElementById('kpiAcc').textContent = world.heldBallId
+      ? `LOCK #${world.heldBallId}`
+      : world.virtualGesture.label !== 'NONE'
+        ? `GESTURE ${world.virtualGesture.label} (97%)`
+        : 'BBOX 3 OBJ (98%)';
+    document.getElementById('kpiFalse').textContent = `${m.false_triggers}회`;
+    document.getElementById('kpiTime').textContent = m.avg_delivery_seconds !== null ? `${m.avg_delivery_seconds}s` : '측정 대기';
+    document.getElementById('kpiRate').textContent = m.delivery_success_rate !== null ? `${m.delivery_success_rate}%` : '측정 대기';
+    document.getElementById('kpiRateDesc').textContent = `성공 ${m.successful_deliveries} / 요청 ${m.total_requests} (취소 ${m.cancelled_requests})`;
+    document.getElementById('kpiFps').textContent = `${fpsSmooth.toFixed(1)} FPS`;
+  }
+
+  // Main 60FPS Render Loop
+  let lastFrameTime = performance.now();
+
+  function frameLoop(now) {
+    const rawDt = Math.min(0.05, Math.max(0.001, (now - lastFrameTime) / 1000));
+    lastFrameTime = now;
+    fpsSmooth = fpsSmooth * 0.92 + (1 / rawDt) * 0.08;
+
+    // Smooth camera orbit interpolation
+    const camK = Math.min(1, rawDt * 8.0);
+    cam.yaw = H3D.lerp(cam.yaw, camTarget.yaw, camK);
+    cam.pitch = H3D.lerp(cam.pitch, camTarget.pitch, camK);
+    cam.dist = H3D.lerp(cam.dist, camTarget.dist, camK);
+    cam.target.x = H3D.lerp(cam.target.x, camTarget.target.x, camK);
+    cam.target.y = H3D.lerp(cam.target.y, camTarget.target.y, camK);
+    cam.target.z = H3D.lerp(cam.target.z, camTarget.target.z, camK);
+
+    // Step organic physics & kinematics
+    world.update(rawDt);
+
+    // Render 3D Wireframe Viewport
+    const wfSz = syncCanvasSize(wfCanvas);
+    wfCtx.save();
+    wfCtx.scale(wfSz.dpr, wfSz.dpr);
+    lastWfRender = H3D.renderWireframeScene(wfCtx, wfSz.w, wfSz.h, world, cam);
+    wfCtx.restore();
+
+    // Render Simulated Vision Camera Viewport (if in sim mode)
+    if (camViewMode === 'sim') {
+      const visSz = syncCanvasSize(visCanvas);
+      visCtx.save();
+      visCtx.scale(visSz.dpr, visSz.dpr);
+      lastVisRender = VIS.renderVisionCamera(visCtx, visSz.w, visSz.h, world);
+      visCtx.restore();
+    }
+
+    // Update DOM telemetry at ~15Hz
+    uiAccum += rawDt;
+    if (uiAccum >= 0.066) {
+      uiAccum = 0;
+      syncDomHud();
+    }
+
+    requestAnimationFrame(frameLoop);
+  }
+
+  syncDomHud();
+  requestAnimationFrame(frameLoop);
+})();
+</script>
+</body>
+</html>
