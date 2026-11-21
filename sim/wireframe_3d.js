@@ -396,6 +396,8 @@
     top: { yaw: 0.0, pitch: 1.30, dist: 66, target: { x: -6.0, y: 2.0, z: 0.0 }, fov: 44 },
     // Vision camera mounted on overhead-front USB webcam stand
     vision: { yaw: 0.18, pitch: 0.68, dist: 50, target: { x: -2.0, y: 4.0, z: 1.5 }, fov: 50 },
+    // Tray inspection camera: looking down at the parts tray, slots 1-2-3 left to right
+    tray: { yaw: Math.PI / 2, pitch: 1.47, dist: 27, target: { x: 14.2, y: 0.4, z: 0.0 }, fov: 40 },
   };
 
   function getCameraBasis(cam) {
@@ -871,7 +873,7 @@
   }
 
   /**
-   * Draws the shared 3D workstation environment (floor grid, tray, chute, receiving bay, ultrasonic waves).
+   * Draws the shared 3D workstation environment (floor grid, tray, chute, receiving bay).
    */
   function drawWorkstationEnvironment(ctx, world, basis, cam, w, h, isVisionView) {
     // 1. Blueprint 3D Floor Grid
@@ -957,13 +959,14 @@
       );
 
       if (!isVisionView) {
-        const lblPt = projectPoint({ x: t.maxX + 1.6, y: 0.8, z: part.slot.z }, basis, cam, w, h);
+        const lblPt = projectPoint({ x: t.maxX + 1.2, y: 0.8, z: part.slot.z }, basis, cam, w, h);
         if (lblPt) {
-          ctx.save();
-          ctx.font = '600 10px "IBM Plex Mono", Consolas, monospace';
-          ctx.fillStyle = stock <= 0 ? PALETTE.warn : (isSelected ? PALETTE.accent : '#7C848E');
-          ctx.fillText(`T${part.id} ${part.name} (x${stock})`, lblPt.x, lblPt.y);
-          ctx.restore();
+          const col = stock <= 0 ? PALETTE.warn : (isSelected ? PALETTE.accent : '#9AA3AE');
+          pendingLabels.push({
+            x: lblPt.x + 4, y: lblPt.y, text: stock <= 0 ? `${part.name} · 비어 있음` : `${part.name} · ${stock}개`,
+            priority: isSelected ? 1 : 3, prefer: 'right',
+            opts: { font: isSelected ? LABEL_FONT_BOLD : LABEL_FONT, color: col, border: isSelected || stock <= 0 ? col : null, height: 19 },
+          });
         }
       }
     }
@@ -1045,61 +1048,12 @@
       bayActive ? 'rgba(111, 191, 115, 0.09)' : 'rgba(22, 25, 30, 0.42)'
     );
 
-    // Ultrasonic sensor post & animated sonar waves
-    const us = b.ultrasonic;
-    drawLine3D(ctx, { x: us.x, y: 0, z: -b.halfZ }, { x: us.x, y: us.y, z: -b.halfZ }, basis, cam, w, h, '#5C646E', 1.2);
-    drawLine3D(ctx, { x: us.x, y: us.y, z: -b.halfZ }, us, basis, cam, w, h, '#5C646E', 1.2);
-    drawWireBox(ctx, us.x - 0.9, us.x + 0.9, us.y - 0.8, us.y + 0.8, us.z - 1.5, us.z + 1.5, basis, cam, w, h, world.ultrasonicCm <= 15 ? PALETTE.pass : '#9AA3AE', 1.15);
-
-    if (bayActive || world.ultrasonicCm < 20) {
-      for (let wIdx = 0; wIdx < 3; wIdx++) {
-        const pulse = ((world.time * 1.4 + wIdx * 0.33) % 1);
-        const rad = 1.6 + pulse * 7.2;
-        const alpha = (1 - pulse) * (world.ultrasonicCm <= 15 ? 0.82 : 0.34);
-        const waveCol = world.ultrasonicCm <= 15
-          ? `rgba(111, 191, 115, ${alpha.toFixed(2)})`
-          : `rgba(182, 188, 196, ${alpha.toFixed(2)})`;
-        drawCircle3D(
-          ctx,
-          { x: us.x - pulse * 5.2, y: us.y - pulse * 4.5, z: 0 },
-          rad * 0.55,
-          { x: 0, y: 1, z: 0 },
-          { x: 0, y: 0, z: 1 },
-          14,
-          basis,
-          cam,
-          w,
-          h,
-          waveCol,
-          1.2
-        );
-      }
-    }
-
-    // Labels for Chute & Bay
+    // Zone labels: tray / chute / receiving bay (the zone holding the part is boxed)
     if (!isVisionView) {
-      const pChute = projectPoint({ x: -18.5, y: 1.0, z: ch.halfZ + 2.5 }, basis, cam, w, h);
-      if (pChute) {
-        ctx.save();
-        ctx.font = '600 10px "IBM Plex Mono", Consolas, monospace';
-        ctx.fillStyle = isRolling ? PALETTE.accent : '#7C848E';
-        ctx.textAlign = 'center';
-        ctx.fillText('경사로 슈트 (20°)', pChute.x, pChute.y);
-        ctx.restore();
-      }
-      const pBay = projectPoint({ x: b.center.x, y: 0.6, z: b.halfZ + 2.8 }, basis, cam, w, h);
-      if (pBay) {
-        ctx.save();
-        ctx.font = '600 10px "IBM Plex Mono", Consolas, monospace';
-        ctx.fillStyle = bayActive ? PALETTE.pass : '#7C848E';
-        ctx.textAlign = 'center';
-        ctx.fillText(
-          world.ultrasonicCm <= 15 ? `수령 트레이 · 초음파 ${world.ultrasonicCm.toFixed(1)}cm` : '수령 트레이 (초음파)',
-          pBay.x,
-          pBay.y
-        );
-        ctx.restore();
-      }
+      const zone = activeZone(world);
+      drawZoneLabel(ctx, projectPoint({ x: (t.minX + t.maxX) / 2, y: 0.4, z: t.maxZ + 3.2 }, basis, cam, w, h), '부품 트레이', zone === 'tray' ? PALETTE.accent : null);
+      drawZoneLabel(ctx, projectPoint({ x: -18.5, y: 1.0, z: ch.halfZ + 3.0 }, basis, cam, w, h), '슈트', zone === 'chute' ? PALETTE.accent : null);
+      drawZoneLabel(ctx, projectPoint({ x: b.center.x, y: 0.6, z: b.halfZ + 3.2 }, basis, cam, w, h), '수령 트레이', zone === 'bay' ? PALETTE.pass : null);
     }
   }
 
@@ -1139,21 +1093,12 @@
         y: (kin.gripCenter.y + focusBall.y) * 0.5 + 1.4,
         z: (kin.gripCenter.z + focusBall.z) * 0.5,
       };
-      const pm = projectPoint(mid, basis, cam, w, h);
+      const pm = world.proximityMode ? projectPoint(mid, basis, cam, w, h) : null;
       if (pm) {
-        ctx.save();
-        ctx.font = '600 10px "IBM Plex Mono", Consolas, monospace';
-        const txt = `${focusBall.distToHand.toFixed(1)} cm${inRange ? ' · GRASP' : ''}`;
-        const tw = ctx.measureText(txt).width + 10;
-        ctx.fillStyle = 'rgba(18, 21, 25, 0.90)';
-        ctx.fillRect(pm.x - tw * 0.5, pm.y - 10, tw, 16);
-        ctx.strokeStyle = lineCol;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(pm.x - tw * 0.5, pm.y - 10, tw, 16);
-        ctx.fillStyle = inRange ? PALETTE.pass : '#DCE0E5';
-        ctx.textAlign = 'center';
-        ctx.fillText(txt, pm.x, pm.y + 1);
-        ctx.restore();
+        pendingLabels.push({
+          x: pm.x, y: pm.y, text: `${focusBall.distToHand.toFixed(1)} cm${inRange ? ' · 잡기' : ''}`, priority: 5,
+          opts: { font: LABEL_FONT, color: inRange ? PALETTE.pass : '#DCE0E5', border: lineCol, height: 18 },
+        });
       }
     }
   }
@@ -1180,11 +1125,294 @@
     }
   }
 
+
+
+  // ---------------------------------------------------------------------
+  // Label layout: places each label in the first free spot (no overlaps),
+  // avoids reserved regions (status box, hand, balls, HUD bars) and draws a
+  // thin leader line when a label had to move away from its anchor.
+  // ---------------------------------------------------------------------
+  const LABEL_FONT = '600 11px "IBM Plex Mono", Consolas, monospace';
+  const LABEL_FONT_BOLD = '700 12px "IBM Plex Mono", Consolas, monospace';
+
+  function createLabelLayout(w, h, margins) {
+    const m = Object.assign({ top: 4, bottom: 4, left: 4, right: 4 }, margins || {});
+    const rects = [];
+    const GAP = 3;
+    const hit = (r) => rects.some((q) => r.x < q.x + q.w + GAP && r.x + r.w + GAP > q.x && r.y < q.y + q.h + GAP && r.y + r.h + GAP > q.y);
+    return {
+      reserve(x, y, rw, rh) { rects.push({ x, y, w: rw, h: rh }); },
+      /** anchor (ax, ay) is where the label prefers to sit (its bottom-center by default). */
+      place(ax, ay, bw, bh, prefer) {
+        const up = { dx: -bw / 2, dy: -bh };
+        const order = prefer === 'right'
+          ? [{ dx: 0, dy: -bh / 2 }, { dx: 0, dy: -bh * 1.5 - GAP }, { dx: 0, dy: bh / 2 + GAP }]
+          : prefer === 'below'
+          ? [{ dx: -bw / 2, dy: 2 }, up]
+          : prefer === 'left-top'
+            ? [{ dx: 0, dy: -bh }, { dx: 0, dy: 2 }]
+            : [up, { dx: -bw / 2, dy: 2 }];
+        const steps = [];
+        for (const o of order) steps.push(o);
+        for (let k = 1; k <= 4; k += 1) {
+          steps.push({ dx: -bw / 2, dy: -bh - k * (bh + GAP) });
+          steps.push({ dx: -bw / 2, dy: 2 + k * (bh + GAP) });
+          steps.push({ dx: 8 + (k - 1) * 18, dy: -bh / 2 });
+          steps.push({ dx: -bw - 8 - (k - 1) * 18, dy: -bh / 2 });
+        }
+        for (const st of steps) {
+          const x = clamp(ax + st.dx, m.left, w - m.right - bw);
+          const y = clamp(ay + st.dy, m.top, h - m.bottom - bh);
+          const r = { x, y, w: bw, h: bh };
+          if (!hit(r)) { rects.push(r); return r; }
+        }
+        return null;
+      },
+    };
+  }
+
+  /** Draw a plated text label through the layout. Returns false if no free spot. */
+  function drawLayoutLabel(ctx, layout, ax, ay, text, opts) {
+    const o = opts || {};
+    ctx.save();
+    ctx.font = o.font || LABEL_FONT;
+    const padX = o.padX != null ? o.padX : 6;
+    const bh = o.height || 18;
+    const bw = ctx.measureText(text).width + padX * 2;
+    const r = layout.place(ax, ay, bw, bh, o.prefer);
+    if (!r) { ctx.restore(); return false; }
+    const cx = r.x + bw / 2;
+    const cy = r.y + bh / 2;
+    // leader line when the label is not touching its anchor
+    const nx = clamp(ax, r.x, r.x + bw);
+    const ny = clamp(ay, r.y, r.y + bh);
+    if (Math.hypot(nx - ax, ny - ay) > 5) {
+      ctx.strokeStyle = o.leader || o.border || 'rgba(154, 162, 172, 0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.fillRect(ax - 2, ay - 2, 4, 4);
+    }
+    ctx.fillStyle = o.plate || 'rgba(18, 21, 25, 0.9)';
+    ctx.fillRect(r.x, r.y, bw, bh);
+    if (o.border) {
+      ctx.strokeStyle = o.border;
+      ctx.lineWidth = o.borderWidth || 1;
+      ctx.strokeRect(r.x + 0.5, r.y + 0.5, bw - 1, bh - 1);
+    }
+    ctx.fillStyle = o.color || '#B6BCC4';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, cy + 0.5);
+    ctx.restore();
+    return true;
+  }
+
+  // Labels requested while drawing the environment; rendered last (on top, laid out).
+  let pendingLabels = [];
+
+  function activeZone(world) {
+    if (!world || world.state === 'IDLE') return null;
+    if (world.heldBallId) return 'hand';
+    const b = world.getActiveBall ? world.getActiveBall() : null;
+    if (!b) return 'tray';
+    if (b.zone === 'CHUTE') return 'chute';
+    if (b.zone === 'BAY' || b.zone === 'HANDED') return 'bay';
+    if (b.zone === 'GRIP') return 'hand';
+    return 'tray';
+  }
+
+  function drawZoneLabel(ctx, p, text, activeColor) {
+    if (!p) return;
+    pendingLabels.push({
+      x: p.x, y: p.y + 9, text, priority: activeColor ? 2 : 4, prefer: 'below',
+      opts: activeColor
+        ? { font: LABEL_FONT_BOLD, color: activeColor, border: activeColor, borderWidth: 1.5, height: 22 }
+        : { font: LABEL_FONT, color: '#9AA3AE', height: 20 },
+    });
+  }
+
+  /** Dashed route the part will travel: tray slot -> chute -> receiving bay. */
+  function drawRouteGuide(ctx, world, basis, cam, w, h) {
+    if (!world || world.state === 'IDLE' || world.emergencyStopped || !world.targetPart) return;
+    const part = PARTS.find((p) => p.id === world.targetPart);
+    if (!part) return;
+    const ch = LAYOUT.chute;
+    const bay = LAYOUT.bay;
+    const legs = [
+      [{ x: part.slot.x, y: 2.2, z: part.slot.z }, { x: part.slot.x - 4, y: 14, z: part.slot.z * 0.5 }, { x: ch.topX + 1.5, y: ch.topY + 3.2, z: 0 }],
+      [{ x: ch.topX, y: ch.topY + 1.2, z: 0 }, { x: ch.bottomX, y: ch.bottomY + 1.2, z: 0 }],
+      [{ x: ch.bottomX - 0.5, y: ch.bottomY + 1.0, z: 0 }, { x: bay.center.x, y: bay.center.y + 0.8, z: 0 }],
+    ];
+    let current = 0;
+    if (world.state === 'DELIVER') current = world.deliverSubstep === 'RELEASE' ? 1 : 0;
+    const zone = activeZone(world);
+    if (zone === 'chute') current = 1;
+    if (zone === 'bay' || world.state === 'HANDOVER') current = 2;
+    if (world.state === 'RETURN') return;
+
+    legs.forEach((pts, i) => {
+      const done = i < current;
+      const active = i === current;
+      const col = done ? 'rgba(154, 162, 172, 0.35)' : active ? PALETTE.accent : 'rgba(154, 162, 172, 0.55)';
+      const scr = pts.map((pt) => projectPoint(pt, basis, cam, w, h));
+      if (scr.some((q) => !q)) return;
+      ctx.save();
+      ctx.strokeStyle = col;
+      ctx.lineWidth = active ? 2.2 : 1.3;
+      ctx.setLineDash(active ? [7, 5] : [3, 5]);
+      if (active) ctx.lineDashOffset = -((world.time || 0) * 24) % 24;
+      ctx.beginPath();
+      ctx.moveTo(scr[0].x, scr[0].y);
+      if (scr.length === 3) ctx.quadraticCurveTo(scr[1].x, scr[1].y, scr[2].x, scr[2].y);
+      else ctx.lineTo(scr[1].x, scr[1].y);
+      ctx.stroke();
+      // arrowhead at the end of the leg
+      const end = scr[scr.length - 1];
+      const prev = scr[scr.length - 2];
+      const ang = Math.atan2(end.y - prev.y, end.x - prev.x);
+      const L = active ? 11 : 8;
+      ctx.setLineDash([]);
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x - L * Math.cos(ang - 0.42), end.y - L * Math.sin(ang - 0.42));
+      ctx.lineTo(end.x - L * Math.cos(ang + 0.42), end.y - L * Math.sin(ang + 0.42));
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  /** Plain-language status box (replaces the numeric telemetry HUD). */
+  function drawPlainStatus(ctx, world, kin) {
+    const nameOf = (id) => {
+      const p = PARTS.find((q) => q.id === id);
+      return p ? p.name : `부품 ${id}`;
+    };
+    const part = world.targetPart ? nameOf(world.targetPart) : '';
+    const grip = avgCurl(world.pose.fingers) > 0.55 ? '쥠' : '펼침';
+    let title;
+    let tone = 'idle';
+    if (world.emergencyStopped) { title = '정지됨 · 관절 고정'; tone = 'warn'; }
+    else if (world.state === 'IDLE') title = '대기 중';
+    else if (world.state === 'REQUEST' || world.state === 'CONFIRM') { title = `${part} 가져갈 준비`; tone = 'accent'; }
+    else if (world.state === 'PICK') { title = world.heldBallId ? `${part} 잡음` : `${part} 잡는 중`; tone = 'accent'; }
+    else if (world.state === 'DELIVER') { title = world.deliverSubstep === 'RELEASE' ? `${part} 슈트에 놓는 중` : `${part} 슈트로 옮기는 중`; tone = 'accent'; }
+    else if (world.state === 'HANDOVER') { title = '수령 트레이 도착 · 작업자 수령 대기'; tone = 'pass'; }
+    else if (world.state === 'RETURN') { title = `${part} 트레이로 되돌리는 중`; tone = 'accent'; }
+    else title = world.state;
+    if (world.statusOverride) {                 // 실물 모드: 대시보드가 상태 문구를 직접 넘김
+      title = world.statusOverride;
+      tone = world.statusTone || tone;
+    }
+    const sub = world.standingHand
+      ? `손 ${grip} · 손목 ${Math.round(world.pose.pan != null ? world.pose.pan : 90)}°`
+      : `손 ${grip}`;
+
+    const col = tone === 'warn' ? PALETTE.warn : tone === 'pass' ? PALETTE.pass : tone === 'accent' ? PALETTE.accent : '#DCE0E5';
+    ctx.save();
+    ctx.font = '700 14px "IBM Plex Mono", Consolas, monospace';
+    const tw1 = ctx.measureText(title).width;
+    ctx.font = '600 11px "IBM Plex Mono", Consolas, monospace';
+    const tw2 = ctx.measureText(sub).width;
+    const bw = Math.max(tw1, tw2) + 30;
+    ctx.fillStyle = 'rgba(18, 21, 25, 0.92)';
+    ctx.fillRect(10, 10, bw, 46);
+    ctx.fillStyle = col;
+    ctx.fillRect(10, 10, 4, 46);
+    ctx.strokeStyle = 'rgba(154, 162, 172, 0.55)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(10.5, 10.5, bw - 1, 45);
+    ctx.font = '700 14px "IBM Plex Mono", Consolas, monospace';
+    ctx.fillStyle = col === '#DCE0E5' ? '#ECEEEB' : col;
+    ctx.fillText(title, 22, 30);
+    ctx.font = '600 11px "IBM Plex Mono", Consolas, monospace';
+    ctx.fillStyle = '#9AA3AE';
+    ctx.fillText(sub, 22, 47);
+    ctx.restore();
+    return { x: 10, y: 10, w: bw, h: 46 };
+  }
+
   /**
    * Main entry point to render the 3D Wireframe Viewport.
    */
-  function renderWireframeScene(ctx, w, h, world, cam) {
+  /** 서 있는 손 (팔 없음): 바닥 + 받침 + 수직 손 + 손목 회전. 사람이 손바닥에 부품을 쥐어 준다. */
+  function renderStandingScene(ctx, w, h, world, cam) {
     ctx.clearRect(0, 0, w, h);
+    const bg = ctx.createRadialGradient(w * 0.5, h * 0.5, 30, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
+    bg.addColorStop(0, '#1A1E24');
+    bg.addColorStop(1, '#111418');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    const basis = getCameraBasis(cam);
+    const kin = world.kinematics || computeHandKinematics(world.pose);
+
+    // 바닥 격자 (손 주변만)
+    for (let v = -16; v <= 16; v += 4) {
+      const major = v % 8 === 0;
+      const col = major ? 'rgba(92, 104, 118, 0.30)' : 'rgba(64, 72, 82, 0.18)';
+      drawLine3D(ctx, { x: v, y: 0, z: -16 }, { x: v, y: 0, z: 16 }, basis, cam, w, h, col, major ? 1 : 0.75);
+      drawLine3D(ctx, { x: -16, y: 0, z: v }, { x: 16, y: 0, z: v }, basis, cam, w, h, col, major ? 1 : 0.75);
+    }
+    // 받침대
+    drawWireBox(ctx, -4, 4, 0, 1.2, -4, 4, basis, cam, w, h, 'rgba(160, 168, 178, 0.75)', 1.2, 'rgba(32, 37, 44, 0.45)');
+    drawLine3D(ctx, { x: 0, y: 1.2, z: 0 }, { x: 0, y: LAYOUT.turretHeight - 0.6, z: 0 }, basis, cam, w, h, '#8B939E', 1.4);
+
+    // 손목 방향 표시 (정면 90° 기준선 + 현재 방향)
+    const yawNow = panToYawDeg(world.pose.pan != null ? world.pose.pan : 90) * DEG;
+    const r = 6.5;
+    drawLine3D(ctx, { x: 0, y: 0.05, z: 0 }, { x: 0, y: 0.05, z: r }, basis, cam, w, h, 'rgba(154, 162, 172, 0.45)', 1, [3, 4]);
+    drawLine3D(ctx, { x: 0, y: 0.08, z: 0 }, { x: Math.sin(yawNow) * r, y: 0.08, z: Math.cos(yawNow) * r }, basis, cam, w, h, PALETTE.accent, 1.8);
+
+    // 받기 단계: 손바닥 앞 '올려 주세요' 자리
+    if (world.receiving) {
+      drawCircle3D(ctx, kin.gripCenter, 2.6, kin.palmRight, kin.palmUp, 20, basis, cam, w, h,
+        'rgba(214, 158, 114, 0.85)', 1.4, 'rgba(214, 158, 114, 0.10)', [5, 4]);
+    }
+
+    drawWireframeHand(ctx, kin, world.tone, world.emergencyStopped, basis, cam, w, h, false);
+
+    // 쥔 부품
+    if (world.heldPart) {
+      const c = kin.gripCenter;
+      if (world.heldPart === 'nut') {
+        drawCircle3D(ctx, c, 1.3, kin.palmRight, kin.palmFront, 6, basis, cam, w, h, PALETTE.pass, 1.8, PALETTE.passDim);
+        drawCircle3D(ctx, c, 0.55, kin.palmRight, kin.palmFront, 12, basis, cam, w, h, PALETTE.pass, 1.2);
+      } else {
+        const a = vAdd(c, vScale(kin.palmRight, -1.8));
+        const b = vAdd(c, vScale(kin.palmRight, 1.8));
+        drawLine3D(ctx, a, b, basis, cam, w, h, PALETTE.pass, 3);
+        drawCircle3D(ctx, a, 0.75, kin.palmUp, kin.palmFront, 6, basis, cam, w, h, PALETTE.pass, 1.6, PALETTE.passDim);
+      }
+    }
+
+    const layout = createLabelLayout(w, h, { top: 4, bottom: 4 });
+    const statusRect = drawPlainStatus(ctx, world, kin);
+    layout.reserve(statusRect.x, statusRect.y, statusRect.w, statusRect.h);
+    const pPalm = projectPoint(kin.palmCenter, basis, cam, w, h);
+    if (pPalm) layout.reserve(pPalm.x - 30, pPalm.y - 40, 60, 80);
+    if (world.heldPart) {
+      const pg = projectPoint(kin.gripCenter, basis, cam, w, h);
+      if (pg) drawLayoutLabel(ctx, layout, pg.x, pg.y - 18, world.heldPart === 'nut' ? '너트' : '볼트',
+        { font: LABEL_FONT_BOLD, color: PALETTE.pass, border: PALETTE.pass, height: 20 });
+    } else if (world.receiving) {
+      const pg = projectPoint(kin.gripCenter, basis, cam, w, h);
+      if (pg) drawLayoutLabel(ctx, layout, pg.x, pg.y + 30, '여기에 올려 주세요',
+        { font: LABEL_FONT_BOLD, color: PALETTE.accent, border: PALETTE.accent, height: 20, prefer: 'below' });
+    }
+    const p0 = projectPoint({ x: 0, y: 0.1, z: r + 1.2 }, basis, cam, w, h);
+    if (p0) drawLayoutLabel(ctx, layout, p0.x, p0.y, '정면', { font: LABEL_FONT, color: '#9AA3AE', height: 18, prefer: 'below' });
+    return { screenBalls: [], kin };
+  }
+
+  function renderWireframeScene(ctx, w, h, world, cam) {
+    if (world.standingHand) return renderStandingScene(ctx, w, h, world, cam);
+    ctx.clearRect(0, 0, w, h);
+    pendingLabels = [];
 
     // Blueprint dark charcoal background
     const bg = ctx.createRadialGradient(w * 0.52, h * 0.48, 30, w * 0.52, h * 0.48, Math.max(w, h) * 0.72);
@@ -1203,6 +1431,9 @@
     if (world.showTrail && world.ballTrail.length > 1) {
       drawBallTrajectory3D(ctx, world.ballTrail, PALETTE.accent, basis, cam, w, h);
     }
+
+    // 2b. Route guide (where the part goes next)
+    drawRouteGuide(ctx, world, basis, cam, w, h);
 
     // 3. Proximity Dome & Distance Vector
     drawProximityOverlay3D(ctx, kin, world, basis, cam, w, h);
@@ -1233,40 +1464,26 @@
       drawWorkerHand3D(ctx, world.workerHand.pos, world.workerHand.open, basis, cam, w, h);
     }
 
-    // 7. Floating Ball Labels
+    // 7. Labels — status box first, then everything else laid out without overlap
+    const layout = createLabelLayout(w, h, { top: 4, bottom: 4 });
+    const statusRect = drawPlainStatus(ctx, world, kin);
+    layout.reserve(statusRect.x, statusRect.y, statusRect.w, statusRect.h);
+    for (const sb of screenBalls) layout.reserve(sb.cx - sb.r, sb.cy - sb.r, sb.r * 2, sb.r * 2);
+    const pPalm = projectPoint(kin.palmCenter, basis, cam, w, h);
+    if (pPalm) {
+      const hr = Math.max(18, 4.2 * pPalm.scale);
+      layout.reserve(pPalm.x - hr, pPalm.y - hr * 1.3, hr * 2, hr * 2.2);
+    }
+    // the part that left the tray gets a name tag
     for (const sb of screenBalls) {
       const b = sb.ball;
-      const isActive = world.targetPart === b.id || world.heldBallId === b.id;
-      ctx.save();
-      ctx.font = '600 10px "IBM Plex Mono", Consolas, monospace';
-      ctx.fillStyle = world.heldBallId === b.id ? PALETTE.pass : (isActive ? PALETTE.accent : '#9AA3AE');
-      ctx.textAlign = 'center';
-      ctx.fillText(`#${b.id} ${b.name}`, sb.cx, sb.cy - sb.r - 6);
-      ctx.restore();
+      if (b.zone === 'TRAY' && world.heldBallId !== b.id) continue;
+      const col = world.heldBallId === b.id || b.zone === 'BAY' || b.zone === 'HANDED' ? PALETTE.pass : PALETTE.accent;
+      pendingLabels.push({ x: sb.cx, y: sb.cy - sb.r - 3, text: b.name, priority: 0, opts: { font: LABEL_FONT_BOLD, color: col, border: col, height: 20 } });
     }
-
-    // 8. Corner 3D Axes Gizmo (clean monotone)
-    drawAxisGizmo(ctx, basis, 38, h - 38);
-
-    // 9. Top-left minimal telemetry HUD overlay
-    const activeBall = world.getActiveBall() || world.getFocusBall();
-    ctx.save();
-    ctx.font = '500 10.5px "IBM Plex Mono", Consolas, monospace';
-    ctx.fillStyle = 'rgba(220, 224, 229, 0.72)';
-    ctx.fillText(
-      `PAN ${Math.round(kin.pan)}°  TILT ${Math.round(kin.tilt)}°  GRIP ${Math.round(avgCurl(world.pose.fingers) * 100)}%`,
-      12,
-      20
-    );
-    if (activeBall) {
-      ctx.fillStyle = world.heldBallId === activeBall.id ? PALETTE.pass : (world.state !== 'IDLE' ? PALETTE.accent : '#8E97A2');
-      ctx.fillText(
-        `BALL #${activeBall.id} [${activeBall.x.toFixed(1)}, ${activeBall.y.toFixed(1)}, ${activeBall.z.toFixed(1)} cm] · ${world.ballZoneLabel()}`,
-        12,
-        36
-      );
-    }
-    ctx.restore();
+    pendingLabels.sort((a, b) => a.priority - b.priority);
+    for (const L of pendingLabels) drawLayoutLabel(ctx, layout, L.x, L.y, L.text, Object.assign({ prefer: L.prefer }, L.opts));
+    pendingLabels = [];
 
     return { screenBalls, kin };
   }
@@ -1319,6 +1536,7 @@
     projectPoint,
     unprojectToPlaneY,
     drawLine3D,
+    drawWireBox,
     drawPolyline3D,
     drawCircle3D,
     drawWireBall,
@@ -1326,6 +1544,8 @@
     drawWorkstationEnvironment,
     drawBallTrajectory3D,
     renderWireframeScene,
+    createLabelLayout,
+    drawLayoutLabel,
   };
 
   if (typeof module !== 'undefined' && module.exports) {

@@ -5,14 +5,17 @@
   python app.py --webcam        # 웹캠 실시간 손짓 인식 켜고 시작
   python app.py --serial        # 실물 micro:bit V2 USB 시리얼 자동 연결
   python app.py --port COM4     # 지정 시리얼 포트로 연결
+  python app.py --serial --webcam --yolo-model models/best.pt   # 실물 로봇 + YOLO 비전
 """
 import argparse
 import webbrowser
 
-from config import ROOT_DIR, PipelineConfig
+from pathlib import Path
+
+from config import ROOT_DIR, YOLO_CLASSES_PATH, YOLO_MODEL_PATH, PipelineConfig
 from link.mock_microbit import MockMicrobitLink
 from link.serial_link import SerialMicrobitLink
-from server import PipelineRuntime, create_server
+from server import VISION_BACKENDS, PipelineRuntime, create_server
 
 
 def parse_args() -> argparse.Namespace:
@@ -22,13 +25,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera", type=int, default=0, help="웹캠 인덱스 (기본 0)")
     parser.add_argument("--webcam", action="store_true", help="시작 시 웹캠 손짓 인식 자동 활성화")
     parser.add_argument("--http-port", type=int, default=0, help="웹 대시보드 포트 (기본 자동 탐색)")
+    parser.add_argument("--vision", choices=VISION_BACKENDS, default="auto",
+                        help="비전 백엔드: auto(YOLO 모델 있으면 YOLO) / yolo / mediapipe")
+    parser.add_argument("--yolo-model", type=Path, default=YOLO_MODEL_PATH, help="YOLO 가중치 경로 (.pt/.onnx)")
+    parser.add_argument("--yolo-classes", type=Path, default=YOLO_CLASSES_PATH, help="클래스 매핑 JSON 경로")
+    parser.add_argument("--yolo-conf", type=float, default=0.5, help="YOLO 검출 신뢰도 임계값")
+    parser.add_argument("--no-verify-parts", action="store_true", help="PICK 전 YOLO 부품 대조 끄기")
     parser.add_argument("--no-browser", action="store_true", help="브라우저 자동 열기 비활성화")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    cfg = PipelineConfig(camera_index=args.camera, serial_port=args.port)
+    cfg = PipelineConfig(
+        camera_index=args.camera,
+        serial_port=args.port,
+        yolo_conf=args.yolo_conf,
+        verify_parts=not args.no_verify_parts,
+    )
 
     if args.serial or args.port:
         link = SerialMicrobitLink(port=args.port or None, baudrate=cfg.baudrate)
@@ -37,12 +51,24 @@ def main() -> None:
         link = MockMicrobitLink()
         mode_desc = "가짜 micro:bit 모의 객체 (115200bps 시뮬레이션)"
 
-    runtime = PipelineRuntime(link=link, config=cfg)
+    runtime = PipelineRuntime(
+        link=link,
+        config=cfg,
+        vision_backend=args.vision,
+        yolo_model_path=args.yolo_model,
+        yolo_classes_path=args.yolo_classes,
+    )
     runtime.start(start_webcam=args.webcam)
 
     server, http_port = create_server(runtime=runtime, root_dir=ROOT_DIR, port=args.http_port)
     url = f"http://127.0.0.1:{http_port}/index.html"
     print(f"[AI-HAND] 실행 모드: {mode_desc}")
+    vinfo = runtime.vision_info()
+    if vinfo["backend"] == "yolo":
+        kinds = ", ".join(f"{c['name']}→{c['kind']}:{c['value']}" for c in vinfo["classes"])
+        print(f"[AI-HAND] 비전: YOLO ({vinfo['model_name']}) · 클래스 [{kinds}]")
+    else:
+        print(f"[AI-HAND] 비전: MediaPipe 손짓 인식" + (f" (YOLO 미사용: {vinfo['error']})" if vinfo["error"] else ""))
     print(f"[AI-HAND] 대시보드 주소: {url}  (종료: Ctrl+C)")
 
     if not args.no_browser:

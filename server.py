@@ -7,7 +7,7 @@ import socket
 import threading
 import time
 
-from config import LOG_DIR, MODEL_PATH, PipelineConfig
+from config import LOG_DIR, MODEL_PATH, YOLO_CLASSES_PATH, YOLO_MODEL_PATH, PipelineConfig
 from controller.state_machine import DeliveryStateMachine, State
 from gesture.classifier import GESTURE_NONE, GESTURE_PALM
 from gesture.webcam import WebcamGestureSource, analyze_image_bytes
@@ -15,6 +15,10 @@ from link.mock_microbit import MockMicrobitLink
 from link.protocol import ERR_EMPTY, ERR_GRIP, RobotLink
 from logging_metrics.csv_logger import CsvEventLogger
 from logging_metrics.metrics import compute_metrics_from_csv
+from vision.detector import YoloDetector, analyze_image_bytes_yolo
+from vision.source import YoloCameraSource
+
+VISION_BACKENDS = ("auto", "yolo", "mediapipe")
 
 
 class PipelineRuntime:
@@ -25,16 +29,46 @@ class PipelineRuntime:
         link: RobotLink,
         config: PipelineConfig = PipelineConfig(),
         log_path: Path | None = None,
+        vision_backend: str = "auto",
+        yolo_model_path: Path = YOLO_MODEL_PATH,
+        yolo_classes_path: Path | None = YOLO_CLASSES_PATH,
     ):
+        if vision_backend not in VISION_BACKENDS:
+            raise ValueError(f"vision_backend must be one of {VISION_BACKENDS}")
         self.cfg = config
         self.link = link
         self.log_path = log_path or (LOG_DIR / "pipeline_events.csv")
         self.logger = CsvEventLogger(self.log_path)
-        self.sm = DeliveryStateMachine(link=link, config=config, logger=self.logger)
-        self.webcam = WebcamGestureSource(
-            camera_index=config.camera_index,
-            model_path=MODEL_PATH,
-            min_confidence=config.min_confidence,
+
+        # 비전 백엔드 선택: auto 는 YOLO 모델이 로드되면 YOLO, 아니면 MediaPipe
+        self.yolo = YoloDetector(
+            model_path=yolo_model_path,
+            classes_path=yolo_classes_path,
+            conf=config.yolo_conf,
+            imgsz=config.yolo_imgsz,
+        )
+        self.vision_requested = vision_backend
+        use_yolo = vision_backend == "yolo" or (vision_backend == "auto" and self.yolo.available)
+        if vision_backend == "yolo" and not self.yolo.available:
+            print(f"[AI-HAND] 경고: YOLO 사용 불가 — {self.yolo.error}")
+        if use_yolo:
+            self.webcam = YoloCameraSource(
+                detector=self.yolo,
+                camera_index=config.camera_index,
+                min_confidence=config.min_confidence,
+            )
+        else:
+            self.webcam = WebcamGestureSource(
+                camera_index=config.camera_index,
+                model_path=MODEL_PATH,
+                min_confidence=config.min_confidence,
+            )
+        self.verify_parts = config.verify_parts
+        self.sm = DeliveryStateMachine(
+            link=link,
+            config=config,
+            logger=self.logger,
+            part_verifier=self._verify_part,
         )
 
         self._lock = threading.Lock()
@@ -59,6 +93,27 @@ class PipelineRuntime:
             self._thread.join(timeout=1.0)
         self.webcam.stop()
         self.link.close()
+
+    @property
+    def vision_backend(self) -> str:
+        return getattr(self.webcam, "backend", "mediapipe")
+
+    def _verify_part(self, part: int) -> tuple[bool | None, str]:
+        if not self.verify_parts:
+            return None, "YOLO 부품 대조 꺼짐"
+        check = getattr(self.webcam, "check_part", None)
+        if check is None:
+            return None, "부품 대조용 YOLO 모델 없음 — 대조 생략"
+        return check(part)
+
+    def vision_info(self) -> dict:
+        info = self.yolo.info()
+        info.update({
+            "backend": self.vision_backend,
+            "requested": self.vision_requested,
+            "verify_parts": self.verify_parts,
+        })
+        return info
 
     def _loop(self) -> None:
         while self._running:
@@ -89,8 +144,16 @@ class PipelineRuntime:
             self._manual_gesture = GESTURE_NONE
             self._manual_conf = 0.0
 
-    def dispatch_action(self, action: str, part: int | None = None) -> dict:
+    def dispatch_action(self, action: str, part: int | None = None, text: str = "") -> dict:
         with self._lock:
+            if action == "text_request" and part in (1, 2, 3):
+                self._manual_gesture = GESTURE_NONE
+                self._manual_conf = 0.0
+                if self.sm.state == State.IDLE:
+                    self.sm.request_part(part, source="vlm", note=text.strip())
+                else:
+                    self.sm._add_log("SYS", f"작업 중({self.sm.state.value}) — 글 요청 무시: '{text.strip()}'")
+                return self.get_state_locked()
             if action == "gesture" and part in (1, 2, 3):
                 self._manual_gesture = str(part)
                 self._manual_conf = 0.98
@@ -129,6 +192,9 @@ class PipelineRuntime:
                 self.sm.reset_all()
             elif action == "false_trigger":
                 self.sm.mark_false_trigger()
+            elif action == "verify_toggle":
+                self.verify_parts = not self.verify_parts
+                self.sm._add_log("SYS", f"YOLO 부품 대조 {'켜짐' if self.verify_parts else '꺼짐'}")
             elif action == "webcam_toggle":
                 if self.webcam.is_running:
                     self.webcam.stop()
@@ -148,9 +214,13 @@ class PipelineRuntime:
         metrics = compute_metrics_from_csv(self.log_path).to_dict()
         snap["metrics"] = metrics
         snap["webcam"] = self.webcam.get_status()
+        snap["webcam"].setdefault("backend", self.vision_backend)
+        snap["vision"] = self.vision_info()
         return snap
 
     def test_image(self, raw_bytes: bytes) -> dict:
+        if self.vision_backend == "yolo":
+            return analyze_image_bytes_yolo(raw_bytes, self.yolo, min_confidence=self.cfg.min_confidence)
         return analyze_image_bytes(
             raw_bytes,
             model_path=MODEL_PATH,
@@ -207,6 +277,7 @@ class DashboardHandler(http.server.SimpleHTTPRequestHandler):
             state = self.runtime.dispatch_action(
                 action=str(payload.get("action", "")),
                 part=payload.get("part"),
+                text=str(payload.get("text", ""))[:200],
             )
             self._send_json(state)
             return

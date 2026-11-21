@@ -97,7 +97,7 @@
       this.speed = 1.0;
       this.state = 'IDLE';
       this.tone = 'pass';
-      this.message = '대기 중 — 손짓(1·2·3), 공 네모칸 클릭, 또는 근접 자동 잡기를 시작하세요.';
+      this.message = '대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.';
       this.targetPart = null;
       this.deliverSubstep = '';
       this.handoverSubstep = '';
@@ -428,6 +428,41 @@
       this._log('SYS', `[CAM] 손짓 ${part} 21점 랜드마크 인식 (신뢰도 0.97) — 1초 홀드 시작`);
     }
 
+    /**
+     * 글 요청(VLM 분석 결과)으로 부품을 요청한다. 손짓과 달리 1초 홀드 없이 바로 CONFIRM
+     * (2초 취소 창)으로 들어간다.
+     */
+    triggerTextRequest(part, text, analysis) {
+      if (this.emergencyStopped) this.emergencyStopped = false;
+      this.manualServo = false;
+      const conf = analysis && analysis.confidence ? analysis.confidence : 0.9;
+      if (this.liveMode && this.cb.onBackendAction) {
+        this.cb.onBackendAction('text_request', part, { text, confidence: conf });
+        return true;
+      }
+      if (this.state !== 'IDLE') {
+        this._log('SYS', `현재 ${this.state} 상태입니다. IDLE에서만 새 요청을 시작할 수 있습니다.`);
+        return false;
+      }
+      const b = this.balls.find((item) => item.id === part);
+      if (b && b.zone !== 'TRAY') this.resetBallToTray(part);
+
+      this.targetPart = part;
+      this.activeBallId = part;
+      this.focusBallId = part;
+      this.ballTrail = b ? [{ x: b.x, y: b.y, z: b.z }] : [];
+      this.emptyAlertPart = null;
+      this.localMetrics.totalRequests += 1;
+      this._runStartTime = this.time;
+      this.ledKey = String(part);
+      this._log('SYS', `[VLM] "${text}" → 부품 ${part} (신뢰도 ${conf.toFixed(2)})`);
+      this._log('TX', `SHOW,${part}`);
+      this._log('RX', 'ACK');
+      this.setVirtualGesture('NONE', conf, `글 요청 확정 (#${part}) — 2초 내 취소 가능`, true);
+      this._enterState('CONFIRM', `글 요청 확정 (${part}번 부품) — 2.0초 내 취소할 수 있어요`, 'accent', 2.0);
+      return true;
+    }
+
     triggerCancel() {
       if (this.liveMode && this.cb.onBackendAction) {
         this.cb.onBackendAction('cancel');
@@ -485,7 +520,7 @@
         this._emptyAlertTimer = 4.0;
         this.stock[pid] = 0;
         this.resetBallToTray(pid);
-        this._log('ERR', `ERR,EMPTY — 트레이 ${pid} 비어 있음 (WonderCam 감지)`);
+        this._log('ERR', `ERR,EMPTY — 트레이 ${pid} 비어 있음 (카메라 감지)`);
         this._log('TX', 'HOME');
         this._log('RX', 'DONE,HOME');
         this.ledKey = 'X';
@@ -560,7 +595,7 @@
 
       this.state = 'IDLE';
       this.tone = 'pass';
-      this.message = '모든 시나리오 리셋 완료 — 손짓(1·2·3), 공 네모칸 클릭, 또는 근접 자동 잡기를 시작하세요.';
+      this.message = '리셋 완료 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.';
       this.targetPart = null;
       this.deliverSubstep = '';
       this.handoverSubstep = '';
@@ -975,7 +1010,7 @@
             this.ledKey = 'OK';
             this._enterState(
               'HANDOVER',
-              '공이 경사로를 굴러 수령 트레이에 도착 — 초음파 근접 수령(EVT,HAND) 대기 중...',
+              '공이 경사로를 굴러 수령 트레이에 도착 — 작업자 수령(EVT,HAND) 대기 중...',
               'accent',
               10.0
             );
@@ -1331,7 +1366,6 @@
         wh.pos.y = this.H3D.lerp(wh.pos.y, 3.6, Math.min(1, dt * 4));
         this.ultrasonicCm = Math.max(6.2, this.H3D.vDist(wh.pos, usPos));
 
-        // Consecutive 3-hit ultrasonic proximity filter (<= 15cm), matching microbit/main.py!
         if (this.ultrasonicCm <= 15.0) {
           this.ultrasonicHits = Math.min(3, this.ultrasonicHits + dt * 5.0);
         }
@@ -1355,7 +1389,7 @@
               this.localMetrics.deliveryTimes.push(Math.max(1.0, this.time - this._runStartTime));
             }
             this._log('RX', 'EVT,HAND');
-            this._log('SYS', '초음파 연속 3회 감지 (≤ 15cm) — 작업자 수령 확인!');
+            this._log('SYS', '작업자 수령 확인 (EVT,HAND)');
             this._log('TX', 'HOME');
             this.handoverSubstep = 'HOME';
             this._phaseElapsed = 0;

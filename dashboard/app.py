@@ -15,12 +15,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from dashboard.catalog import PARTS, by_id, default_inventory
-from dashboard.hand import FakeHand, MicrobitHand
+from config import YOLO_CLASSES_PATH, YOLO_MODEL_PATH
+from dashboard.hand import FakeHand, MicrobitHand, VisionHand
 from dashboard.logcsv import DEFAULT_LOG, HEADER, clear_log, read_all, summarize_log
 from dashboard.pipeline import Pipeline, idle_snapshot
 from gesture.webcam import analyze_image_bytes
 from link.mock_microbit import MockMicrobitLink
 from link.serial_link import SerialMicrobitLink, find_microbit_port
+from vision.detector import YoloDetector, analyze_image_bytes_yolo
 
 STATE_KO = {
     "IDLE": "대기",
@@ -32,6 +34,8 @@ STATE_KO = {
     "DONE": "완료",
     "FAIL": "실패",
 }
+
+YOLO_FRAME_SOURCES = ("카메라 1프레임 캡처", "업로드한 트레이 이미지")
 
 MODE_OPTIONS = (
     "가상 파이프라인 (FakeHand)",
@@ -354,6 +358,46 @@ def _init_state() -> None:
     st.session_state.setdefault("serial_port", find_microbit_port() or "COM3")
     st.session_state.setdefault("last_error", "")
     st.session_state.setdefault("gesture_result", None)
+    st.session_state.setdefault("yolo_model_path", str(YOLO_MODEL_PATH))
+    st.session_state.setdefault("yolo_conf", 0.5)
+    st.session_state.setdefault("yolo_verify", False)
+    st.session_state.setdefault("yolo_frame_src", YOLO_FRAME_SOURCES[0])
+    st.session_state.setdefault("yolo_camera", 0)
+    st.session_state.setdefault("yolo_tray_bytes", None)
+    st.session_state.setdefault("yolo_test_result", None)
+
+
+@st.cache_resource(show_spinner="YOLO 모델 로드 중...")
+def _load_yolo(model_path: str, conf: float) -> YoloDetector:
+    det = YoloDetector(model_path=Path(model_path), classes_path=YOLO_CLASSES_PATH, conf=conf)
+    det.load()
+    return det
+
+
+def _yolo() -> YoloDetector:
+    return _load_yolo(st.session_state.yolo_model_path.strip(), float(st.session_state.yolo_conf))
+
+
+def _grab_yolo_frame():
+    """VERIFY 대조용 BGR 프레임: 업로드한 트레이 이미지 또는 카메라 1프레임."""
+    import cv2
+    import numpy as np
+
+    if st.session_state.yolo_frame_src == YOLO_FRAME_SOURCES[1]:
+        raw = st.session_state.get("yolo_tray_bytes")
+        if not raw:
+            return None
+        return cv2.imdecode(np.frombuffer(raw, dtype=np.uint8), cv2.IMREAD_COLOR)
+    cap = cv2.VideoCapture(int(st.session_state.yolo_camera))
+    try:
+        frame = None
+        for _ in range(5):  # 자동 노출 안정화
+            ok, img = cap.read()
+            if ok:
+                frame = img
+        return frame
+    finally:
+        cap.release()
 
 
 def _build_hand() -> tuple[object, object | None]:
@@ -363,14 +407,22 @@ def _build_hand() -> tuple[object, object | None]:
     pick_fail = bool(st.session_state.get("force_pick_fail", False))
     deliver_fail = bool(st.session_state.get("force_deliver_fail", False))
 
+    link = None
     if mode == MODE_OPTIONS[1]:
         link = MockMicrobitLink()
-        return MicrobitHand(link, force_wrong=wrong, force_pick_fail=pick_fail, force_deliver_fail=deliver_fail), link
-    if mode == MODE_OPTIONS[2]:
+        hand = MicrobitHand(link, force_wrong=wrong, force_pick_fail=pick_fail, force_deliver_fail=deliver_fail)
+    elif mode == MODE_OPTIONS[2]:
         port = st.session_state.get("serial_port", "").strip() or None
         link = SerialMicrobitLink(port=port)
-        return MicrobitHand(link, force_wrong=wrong, force_pick_fail=pick_fail, force_deliver_fail=deliver_fail), link
-    return FakeHand(wrong, pick_fail, deliver_fail), None
+        hand = MicrobitHand(link, force_wrong=wrong, force_pick_fail=pick_fail, force_deliver_fail=deliver_fail)
+    else:
+        hand = FakeHand(wrong, pick_fail, deliver_fail)
+
+    if st.session_state.get("yolo_verify"):
+        det = _yolo()
+        if det.available and det.has_part_classes:
+            hand = VisionHand(hand, det, _grab_yolo_frame)
+    return hand, link
 
 
 def _execute_pipeline(cmd_text: str, *, source: str = "text") -> None:
@@ -569,6 +621,17 @@ def _render_gesture_tab() -> None:
         horizontal=True,
         key="gesture_src_mode",
     )
+    det = _yolo()
+    yolo_gesture_ok = det.available and det.has_gesture_classes
+    engine = st.radio(
+        "인식 엔진",
+        ("MediaPipe 21점 규칙", "YOLO 학습 모델"),
+        horizontal=True,
+        key="gesture_engine",
+        index=1 if yolo_gesture_ok else 0,
+    )
+    if engine == "YOLO 학습 모델" and not yolo_gesture_ok:
+        st.warning(det.error or "YOLO 모델에 손짓 클래스가 없습니다. '하드웨어 · 시험' 탭의 YOLO 클래스 매핑을 확인하세요.")
     auto_run = st.checkbox("1·2·3 손짓 인식 성공 시 즉시 전달 실행", value=True, key="gesture_auto_run")
 
     raw_bytes: bytes | None = None
@@ -582,7 +645,10 @@ def _render_gesture_tab() -> None:
             raw_bytes = up_file.getvalue()
 
     if raw_bytes is not None and st.button("손짓 분석 실행", key="analyze_gesture", width="stretch"):
-        res = analyze_image_bytes(raw_bytes)
+        if engine == "YOLO 학습 모델" and yolo_gesture_ok:
+            res = analyze_image_bytes_yolo(raw_bytes, det)
+        else:
+            res = analyze_image_bytes(raw_bytes)
         st.session_state.gesture_result = res
         if res.get("ok") and res.get("passed"):
             label = res.get("label")
@@ -611,6 +677,67 @@ def _render_gesture_tab() -> None:
                     st.rerun()
             else:
                 st.warning(res.get("reason", "인식 조건 미충족"))
+
+
+def _render_yolo_section() -> None:
+    st.markdown("<div class='sec-label' style='margin-top:10px'>YOLO 비전 (학습 모델)</div>", unsafe_allow_html=True)
+    c_path, c_conf = st.columns([3, 1.3])
+    with c_path:
+        st.text_input("가중치 경로 (.pt / .onnx)", key="yolo_model_path")
+    with c_conf:
+        st.number_input("신뢰도", min_value=0.05, max_value=0.95, step=0.05, key="yolo_conf")
+
+    det = _yolo()
+    if not det.available:
+        st.info(f"{det.error}\n\nYOLO 없이도 기존 가짜 대조로 계속 동작합니다.")
+        return
+
+    st.success(f"모델 로드됨: {det.model_path.name} · 매핑 {'기본 별칭' if det.class_map.source == 'default' else Path(det.class_map.source).name}")
+    kind_ko = {"part": "부품", "gesture": "손짓", "other": "무시"}
+    st.dataframe(
+        [{"id": c["id"], "클래스": c["name"], "용도": kind_ko[c["kind"]], "값": "" if c["value"] is None else str(c["value"])}
+         for c in det.classes],
+        hide_index=True,
+        width="stretch",
+    )
+    if not det.has_part_classes:
+        st.warning("부품으로 해석된 클래스가 없어 VERIFY 대조에 쓸 수 없습니다. models/yolo_classes.json 으로 매핑하세요.")
+        return
+
+    st.checkbox("VERIFY 단계에서 YOLO로 트레이 부품 대조", key="yolo_verify")
+    st.radio("대조 프레임", YOLO_FRAME_SOURCES, horizontal=True, key="yolo_frame_src")
+    if st.session_state.yolo_frame_src == YOLO_FRAME_SOURCES[0]:
+        st.number_input("카메라 인덱스", min_value=0, max_value=9, step=1, key="yolo_camera")
+    tray_file = st.file_uploader("트레이 사진 (대조/검출 테스트용)", type=["png", "jpg", "jpeg"], key="yolo_tray_upload")
+    if tray_file is not None:
+        st.session_state.yolo_tray_bytes = tray_file.getvalue()
+
+    if st.button("YOLO 검출 테스트", key="yolo_test", width="stretch"):
+        import cv2
+
+        if st.session_state.yolo_frame_src == YOLO_FRAME_SOURCES[1] and st.session_state.yolo_tray_bytes:
+            raw = st.session_state.yolo_tray_bytes
+        else:
+            frame = _grab_yolo_frame()
+            ok, buf = cv2.imencode(".jpg", frame) if frame is not None else (False, None)
+            raw = buf.tobytes() if ok else None
+        st.session_state.yolo_test_result = (
+            analyze_image_bytes_yolo(raw, det) if raw else {"ok": False, "error": "프레임을 얻지 못했습니다."}
+        )
+
+    res = st.session_state.get("yolo_test_result")
+    if res:
+        if not res.get("ok"):
+            st.error(res.get("error", "검출 실패"))
+        else:
+            data_url = res.get("image_data_url", "")
+            if data_url:
+                st.image(base64.b64decode(data_url.split(",", 1)[1]), width="stretch")
+            counts = res.get("part_counts", {})
+            st.caption(
+                f"부품 1: {counts.get(1, 0)}개 · 2: {counts.get(2, 0)}개 · 3: {counts.get(3, 0)}개"
+                f" · 손짓: {res.get('label')} ({res.get('confidence', 0):.2f})"
+            )
 
 
 def _render_control_workbench() -> None:
@@ -666,6 +793,8 @@ def _render_control_workbench() -> None:
         st.radio("로봇 연결 모드", MODE_OPTIONS, key="mode")
         if st.session_state.mode == MODE_OPTIONS[2]:
             st.text_input("시리얼 포트 (예: COM3, /dev/ttyACM0)", key="serial_port")
+
+        _render_yolo_section()
 
         st.markdown("<div class='sec-label' style='margin-top:10px'>고장 주입 시험 (Fault Injection)</div>", unsafe_allow_html=True)
         st.checkbox("다른 부품을 집게 한다 (VERIFY 불일치)", key="force_wrong")

@@ -1,0 +1,6 @@
+{
+  "_comment": "yolo_classes.json 으로 복사한 뒤 학습 data.yaml 의 클래스 이름에 맞게 수정하세요. 이 파일이 있으면 여기 적힌 매핑만 사용합니다.",
+  "parts": {"cap_a": 1, "cap_b": 2, "cap_c": 3},
+  "gestures": {"one": "1", "two": "2", "three": "3", "palm": "PALM"},
+  "ignore": ["hand", "tray"]
+}

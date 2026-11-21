@@ -3,3 +3,8 @@ mediapipe>=0.10.14
 pyserial>=3.5
 numpy>=1.26.0
 streamlit>=1.32.0
+# 실물 받기 작업(handover_app.py)
+microfs>=1.4
+# 팀 YOLO 모델 사용 시 (Intel Mac: torch 2.2.2 + numpy<2)
+# torch==2.2.2
+# ultralytics>=8.1.0

@@ -53,8 +53,11 @@ class DeliveryStateMachine:
         config: PipelineConfig = PipelineConfig(),
         logger: CsvEventLogger | None = None,
         clock: Callable[[], float] = time.monotonic,
+        part_verifier: Callable[[int], tuple[bool | None, str]] | None = None,
     ):
         self.link = link
+        # PICK 직전 비전 대조 (True=확인, False=불일치→중단, None=판단 불가→진행)
+        self.part_verifier = part_verifier
         self.cfg = config
         self.logger = logger
         self._clock = clock
@@ -134,6 +137,44 @@ class DeliveryStateMachine:
         self._csv("FALSE_TRIGGER_MARKED", "manual_mark")
         self._add_log("SYS", "오인식 요청 기록됨 (지표 반영)")
 
+    def _verify_part_before_pick(self, part: int) -> bool:
+        """비전 대조기가 있으면 PICK 전에 트레이의 목표 부품을 확인한다. 실패 시 IDLE 복귀."""
+        if self.part_verifier is None:
+            return True
+        try:
+            ok, reason = self.part_verifier(part)
+        except Exception as exc:  # 비전 오류가 로봇 제어를 막지 않도록
+            ok, reason = None, f"비전 대조 오류: {exc}"
+        if ok is False:
+            self._add_log("ERR", reason)
+            self._csv("DELIVERY_FAILED", f"vision_verify:part={part}")
+            self._go_idle(f"{reason} — 트레이 확인 후 재시도하세요.", tone="warn", send_home=True)
+            return False
+        self._add_log("SYS", reason)
+        if ok:
+            self._csv("VISION_VERIFIED", f"part={part}")
+        return True
+
+    def request_part(self, part: int, source: str = "text", note: str = "") -> bool:
+        """글(VLM) 등 명시적 요청: 홀드 없이 바로 CONFIRM(SHOW,N + 취소 창)으로 들어간다."""
+        if self.state != State.IDLE or part not in (1, 2, 3):
+            return False
+        self.target_part = part
+        self._pick_retries = 0
+        detail = f"part={part};source={source}"
+        if note:
+            detail += f";text={note.replace(';', ',')[:80]}"
+        self._csv("REQUEST_CONFIRMED", detail)
+        self._add_log("SYS", f"[{source.upper()}] 요청 '{note}' → 부품 {part}" if note else f"[{source.upper()}] 부품 {part} 요청")
+        self._send(format_command(CMD_SHOW, part), timeout=self.cfg.ack_timeout)
+        self._enter(
+            State.CONFIRM,
+            f"글 요청 확정 ({part}번 부품) — {self.cfg.confirm_seconds:.0f}초 내 취소할 수 있어요",
+            tone="accent",
+            duration=self.cfg.confirm_seconds,
+        )
+        return True
+
     def trigger_proximity_pick(self, part: int) -> bool:
         """가상/비전 근접 감지 시 대기 상태에서 즉시 파지(PICK) 파이프라인을 시작한다."""
         if self.state != State.IDLE or part not in (1, 2, 3):
@@ -141,6 +182,8 @@ class DeliveryStateMachine:
         self.target_part = part
         self._pick_retries = 0
         self._csv("REQUEST_CONFIRMED", f"part={part};source=proximity")
+        if not self._verify_part_before_pick(part):
+            return False
         self._add_log("SYS", f"비전 근접 감지(부품 {part}) — 자동 파지 시작")
         self._send(format_command(CMD_SHOW, part))
         self._send(format_command(CMD_PICK, part), timeout=self.cfg.pick_timeout)
@@ -257,6 +300,8 @@ class DeliveryStateMachine:
 
             if (now - self.state_entered_at) >= self.cfg.confirm_seconds:
                 self._pick_retries = 0
+                if not self._verify_part_before_pick(self.target_part):
+                    return
                 self._send(format_command(CMD_PICK, self.target_part), timeout=self.cfg.pick_timeout)
                 self._enter(
                     State.PICK,

@@ -202,5 +202,27 @@ class StateMachineTests(unittest.TestCase):
             self.assertEqual(metrics.false_triggers, 0)
 
 
+    def test_text_request_skips_hold_and_allows_cancel(self):
+        self.assertTrue(self.sm.request_part(3, source="vlm", note="초록색 잠금 캡"))
+        self.assertEqual(self.sm.state, State.CONFIRM)
+        self.assertEqual(self.link.sent_commands[-1], "SHOW,3")
+        # 취소 창 안에서 손바닥 → 취소
+        self.clock.advance(0.5)
+        self.sm.step("PALM", 0.95)
+        self.assertEqual(self.sm.state, State.IDLE)
+
+    def test_text_request_proceeds_to_pick(self):
+        self.sm.request_part(1, source="vlm")
+        self.clock.advance(2.1)
+        self.sm.step("NONE", 0.0)
+        self.assertEqual(self.sm.state, State.PICK)
+        self.assertIn("PICK,1", self.link.sent_commands)
+
+    def test_text_request_rejected_when_busy(self):
+        self.sm.request_part(1)
+        self.assertFalse(self.sm.request_part(2))
+        self.assertEqual(self.sm.target_part, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

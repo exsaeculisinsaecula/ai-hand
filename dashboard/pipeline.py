@@ -72,10 +72,12 @@ class Pipeline:
         ) -> None:
             stock_snap = dict(cur_stock) if cur_stock is not None else (dict(stock) if stock is not None else None)
             tray_status = f"{state} · #{selected}" if selected else state
+            # YOLO 대조를 거친 뒤에는 실제 카메라 주석 프레임을 쟁반 뷰로 사용
+            vision_frame = getattr(active_hand, "vision_frame", None)
             snaps.append(
                 Snapshot(
                     state=state,
-                    tray=tray_frame(
+                    tray=vision_frame if vision_frame is not None else tray_frame(
                         selected,
                         stock=stock_snap,
                         fail_part=fail_part,
@@ -135,6 +137,7 @@ class Pipeline:
 
         seen = active_hand.observe(part)
         match = "yes" if seen == part else "no"
+        vision_note = getattr(active_hand, "vision_note", "")
         push(
             "VERIFY",
             part,
@@ -145,7 +148,7 @@ class Pipeline:
             part,
             None,
             hand_status="APPROACH" if match == "yes" else "FAIL",
-            note=(
+            note=vision_note or (
                 f"카메라 대조 일치 (#{part} {part_info.name})"
                 if match == "yes"
                 else f"대조 불일치: 요청 #{part} ≠ 감지 #{seen}"
@@ -163,7 +166,11 @@ class Pipeline:
                 part,
                 None,
                 hand_status="FAIL",
-                note=f"요청(#{part})과 다른 부품(#{seen}) 감지 — 안전 중단",
+                note=(
+                    f"트레이에서 #{part} {part_info.name} 미검출 — 안전 중단"
+                    if seen is None
+                    else f"요청(#{part})과 다른 부품(#{seen}) 감지 — 안전 중단"
+                ),
                 fail_part=seen,
             )
             return snaps

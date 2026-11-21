@@ -68,6 +68,8 @@
     return pts;
   }
 
+  let visLabels = [];
+
   /**
    * Draws corner-bracketed CV detection bounding box (네모칸).
    */
@@ -134,36 +136,12 @@
       ctx.stroke();
     }
 
-    // Top label tag
+    // Labels are laid out later (no overlaps)
     if (opts && opts.topLabel) {
-      ctx.globalAlpha = 1.0;
-      ctx.font = '600 9.5px "IBM Plex Mono", Consolas, monospace';
-      const tw = ctx.measureText(opts.topLabel).width + 8;
-      const ty = Math.max(24, y1 - 16);
-      ctx.fillStyle = active ? color : 'rgba(18, 22, 27, 0.88)';
-      ctx.fillRect(x1, ty, tw, 15);
-      if (!active) {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x1, ty, tw, 15);
-      }
-      ctx.fillStyle = active ? '#121519' : color;
-      ctx.fillText(opts.topLabel, x1 + 4, ty + 11);
+      visLabels.push({ x: x1 + bw / 2, y: y1 - 2, text: opts.topLabel, priority: active ? 1 : 4, color, active, prefer: 'up' });
     }
-
-    // Bottom status / distance tag
     if (opts && opts.bottomLabel) {
-      ctx.globalAlpha = 1.0;
-      ctx.font = '600 9px "IBM Plex Mono", Consolas, monospace';
-      const tw = ctx.measureText(opts.bottomLabel).width + 8;
-      const by = y2 + 2;
-      ctx.fillStyle = 'rgba(15, 19, 24, 0.90)';
-      ctx.fillRect(x1, by, tw, 14);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 0.9;
-      ctx.strokeRect(x1, by, tw, 14);
-      ctx.fillStyle = color;
-      ctx.fillText(opts.bottomLabel, x1 + 4, by + 10);
+      visLabels.push({ x: x1 + bw / 2, y: y2 + 2, text: opts.bottomLabel, priority: active ? 2 : 5, color, active: false, prefer: 'below' });
     }
 
     ctx.restore();
@@ -286,244 +264,131 @@
    * Renders the full Simulated AI Vision Camera feed with live bounding boxes & proximity lock.
    * Returns { detections: [{ ball, x1, y1, x2, y2, cx, cy }] } for direct mouse click/drag interaction.
    */
+  /**
+   * Tray inspection camera: only the parts tray and what the camera recognizes on it.
+   * Returns { detections, cam, basis } (detections are clickable to request a part).
+   */
   function renderVisionCamera(ctx, w, h, world) {
     const H3D = global.AiHand3D;
     if (!H3D) return { detections: [] };
 
     ctx.clearRect(0, 0, w, h);
+    visLabels = [];
 
-    // Camera monochrome optical backdrop
     const bg = ctx.createRadialGradient(w * 0.5, h * 0.5, 20, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
     bg.addColorStop(0, '#161A20');
     bg.addColorStop(1, '#0E1115');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
-    const cam = H3D.CAM_PRESETS.vision;
+    const cam = H3D.CAM_PRESETS.tray;
     const basis = H3D.getCameraBasis(cam);
-    const kin = world.kinematics || H3D.computeHandKinematics(world.pose);
+    const t = H3D.LAYOUT.tray;
+    const active = world.state !== 'IDLE' && !world.emergencyStopped;
 
-    // 1. Render the live 3D workspace as captured by the overhead USB/WonderCam
-    H3D.drawWorkstationEnvironment(ctx, world, basis, cam, w, h, true);
+    // 1. Tray body + slot dividers
+    H3D.drawWireBox(ctx, t.minX, t.maxX, 0, 1.1, t.minZ, t.maxZ, basis, cam, w, h, 'rgba(160, 168, 178, 0.75)', 1.3, 'rgba(32, 37, 44, 0.45)');
+    H3D.drawLine3D(ctx, { x: t.minX, y: 1.1, z: -3.2 }, { x: t.maxX, y: 1.1, z: -3.2 }, basis, cam, w, h, 'rgba(130, 138, 148, 0.6)', 1);
+    H3D.drawLine3D(ctx, { x: t.minX, y: 1.1, z: 3.2 }, { x: t.maxX, y: 1.1, z: 3.2 }, basis, cam, w, h, 'rgba(130, 138, 148, 0.6)', 1);
 
-    // 2. Render trajectory inside camera feed
-    if (world.ballTrail && world.ballTrail.length > 1) {
-      H3D.drawBallTrajectory3D(ctx, world.ballTrail, '#D69E72', basis, cam, w, h);
-    }
-
-    // 3. Draw Proximity Grasp Zone ring projected into camera space
-    const threshold = world.graspThresholdCm || 8.5;
-    const focusBall = world.getFocusBall();
-    const minDist = focusBall ? focusBall.distToHand : 99;
-    const anyInRange = minDist <= threshold;
-
-    H3D.drawCircle3D(
-      ctx,
-      kin.gripCenter,
-      threshold,
-      { x: 1, y: 0, z: 0 },
-      { x: 0, y: 0, z: 1 },
-      24,
-      basis,
-      cam,
-      w,
-      h,
-      anyInRange ? 'rgba(111, 191, 115, 0.80)' : 'rgba(166, 174, 184, 0.30)',
-      anyInRange ? 1.6 : 1.0,
-      anyInRange ? 'rgba(111, 191, 115, 0.08)' : null,
-      [5, 4]
-    );
-
-    // 4. Render 3D balls and collect exact screen bounding boxes
+    const pulse = 0.5 + 0.5 * Math.sin(world.time * 9.0);
     const detections = [];
-    for (const ball of world.balls) {
-      if (!ball.visible) continue;
-      const isGrasped = world.heldBallId === ball.id;
-      const isTarget = world.targetPart === ball.id || ball.id === world.focusBallId;
-      const sb = H3D.drawWireBall(ctx, ball, basis, cam, w, h, { isTarget, isGrasped });
-      if (sb) {
+    const inTrayView = (b) => b.x >= t.minX - 1 && b.x <= t.maxX + 1 && b.z >= t.minZ - 1 && b.z <= t.maxZ + 1 && b.y < 14;
+
+    for (const part of H3D.PARTS) {
+      const stock = world.stock[part.id] != null ? world.stock[part.id] : 3;
+      const isTarget = active && world.targetPart === part.id;
+      const ball = world.balls.find((b) => b.id === part.id);
+      const visible = ball && ball.visible && inTrayView(ball);
+
+      // slot ring
+      H3D.drawCircle3D(ctx, { x: part.slot.x, y: 0.25, z: part.slot.z }, 2.55, { x: 1, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, 20, basis, cam, w, h,
+        stock <= 0 ? '#D9534F' : isTarget ? '#D69E72' : 'rgba(130, 138, 148, 0.45)', isTarget ? 1.8 : 1.0, null);
+
+      if (visible) {
+        const lifted = world.heldBallId === part.id;
+        const sb = H3D.drawWireBall(ctx, ball, basis, cam, w, h, { isTarget, isGrasped: lifted });
+        if (!sb) continue;
         const pad = Math.max(8, sb.r * 0.45);
-        detections.push({
-          ball,
-          cx: sb.cx,
-          cy: sb.cy,
-          r: sb.r,
-          x1: sb.cx - sb.r - pad,
-          y1: sb.cy - sb.r - pad,
-          x2: sb.cx + sb.r + pad,
-          y2: sb.cy + sb.r + pad,
+        const det = { ball, cx: sb.cx, cy: sb.cy, r: sb.r, x1: sb.cx - sb.r - pad, y1: sb.cy - sb.r - pad, x2: sb.cx + sb.r + pad, y2: sb.cy + sb.r + pad };
+        detections.push(det);
+
+        let color = '#939BA6';
+        let fill = 'rgba(180, 188, 198, 0.04)';
+        let status = null;
+        let on = false;
+        if (lifted) { color = '#6FBF73'; fill = 'rgba(111, 191, 115, 0.12)'; status = '집는 중'; on = true; }
+        else if (isTarget) { color = '#D69E72'; fill = 'rgba(214, 158, 114, 0.12)'; status = '요청됨'; on = true; }
+        const conf = Math.round((0.95 + part.id * 0.011 + Math.sin(world.time * 2 + part.id) * 0.008) * 100);
+        drawDetectionBox(ctx, det.x1, det.y1, det.x2, det.y2, color, {
+          active: on, pulse, fill,
+          topLabel: `${part.name} ${conf}%`,
+          bottomLabel: status,
+        });
+      } else {
+        // nothing in the slot
+        const pe = H3D.projectPoint({ x: part.slot.x, y: 0.6, z: part.slot.z }, basis, cam, w, h);
+        if (!pe) continue;
+        const r = Math.max(16, 2.6 * pe.scale);
+        const empty = stock <= 0;
+        drawDetectionBox(ctx, pe.x - r, pe.y - r, pe.x + r, pe.y + r, empty ? '#D9534F' : 'rgba(150, 158, 168, 0.7)', {
+          active: empty, pulse, dashed: true,
+          fill: empty ? 'rgba(217, 83, 79, 0.10)' : null,
+          topLabel: part.name,
+          bottomLabel: empty ? '비어 있음 · 보충 필요' : '로봇이 집어 감',
         });
       }
     }
 
-    // 5. Render the wireframe robotic hand in camera space
-    H3D.drawWireframeHand(ctx, kin, world.tone, world.emergencyStopped, basis, cam, w, h, true);
-
-    // 6. Subtle monotone robot hand tracker box
-    const pHand = H3D.projectPoint(kin.palmCenter, basis, cam, w, h);
-    if (pHand) {
-      const hr = Math.max(24, 5.2 * pHand.scale);
-      drawDetectionBox(
-        ctx,
-        pHand.x - hr,
-        pHand.y - hr,
-        pHand.x + hr,
-        pHand.y + hr,
-        world.emergencyStopped ? '#D9534F' : 'rgba(160, 168, 178, 0.48)',
-        {
-          topLabel: `AI-HAND · ${world.emergencyStopped ? 'STOP' : world.state}`,
-          dashed: true,
-        }
-      );
-    }
-
-    // 7. Object Detection Bounding Boxes (네모칸):
-    //    Standby = crisp monotone silver; Target/Approach/Chute = muted amber; Proximity Lock/Grasped/Bay = sage-green
-    const pulse = 0.5 + 0.5 * Math.sin(world.time * 9.0);
-    const pGrip = H3D.projectPoint(kin.gripCenter, basis, cam, w, h);
-
-    for (const det of detections) {
-      const b = det.ball;
-      const isGrasped = world.heldBallId === b.id;
-      const isTarget = world.targetPart === b.id;
-      const inRange = !isGrasped && b.distToHand <= threshold;
-      const approaching = !isGrasped && b.distToHand <= threshold + 6.5;
-      const onChute = b.zone === 'CHUTE';
-      const inBay = b.zone === 'BAY';
-
-      let boxColor = '#939BA6';
-      let fill = 'rgba(180, 188, 198, 0.04)';
-      let active = false;
-      let statusTag = `D:${b.distToHand.toFixed(1)}cm`;
-
-      if (isGrasped) {
-        boxColor = '#6FBF73';
-        fill = 'rgba(111, 191, 115, 0.12)';
-        active = true;
-        statusTag = 'GRASPED · 파지 중';
-      } else if (onChute) {
-        boxColor = '#D69E72';
-        fill = 'rgba(214, 158, 114, 0.12)';
-        active = true;
-        const spd = Math.hypot(b.vx || 0, b.vy || 0, b.vz || 0);
-        statusTag = `CHUTE · ${spd.toFixed(0)}cm/s`;
-      } else if (inBay) {
-        boxColor = '#6FBF73';
-        fill = 'rgba(111, 191, 115, 0.12)';
-        active = true;
-        statusTag = 'ARRIVED · 수령 대기';
-      } else if (inRange) {
-        boxColor = '#6FBF73';
-        fill = 'rgba(111, 191, 115, 0.16)';
-        active = true;
-        statusTag = `근접 ${b.distToHand.toFixed(1)}cm → GRASP`;
-      } else if (isTarget || approaching) {
-        boxColor = '#D69E72';
-        fill = 'rgba(214, 158, 114, 0.10)';
-        active = true;
-        statusTag = `${isTarget ? 'LOCK' : 'APPROACH'} · ${b.distToHand.toFixed(1)}cm`;
-      }
-
-      if (pGrip && (active || b.id === world.focusBallId) && !isGrasped && !onChute && !inBay) {
-        ctx.save();
-        ctx.strokeStyle = boxColor;
-        ctx.lineWidth = inRange ? 1.6 : 1.0;
-        ctx.setLineDash([4, 3]);
-        ctx.beginPath();
-        ctx.moveTo(pGrip.x, pGrip.y);
-        ctx.lineTo(det.cx, det.cy);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      const spd = Math.hypot(b.vx || 0, b.vy || 0, b.vz || 0);
-      if (spd > 2.5 && !isGrasped) {
-        const nextPt = H3D.projectPoint(
-          { x: b.x + b.vx * 0.22, y: b.y + b.vy * 0.22, z: b.z + b.vz * 0.22 },
-          basis,
-          cam,
-          w,
-          h
-        );
-        if (nextPt) {
-          ctx.save();
-          ctx.strokeStyle = '#ECEEEB';
-          ctx.lineWidth = 1.6;
-          ctx.beginPath();
-          ctx.moveTo(det.cx, det.cy);
-          ctx.lineTo(nextPt.x, nextPt.y);
-          ctx.stroke();
-          ctx.restore();
-        }
-      }
-
-      const conf = (0.95 + (b.id * 0.011) + Math.sin(world.time * 2 + b.id) * 0.008).toFixed(2);
-      drawDetectionBox(ctx, det.x1, det.y1, det.x2, det.y2, boxColor, {
-        active,
-        pulse,
-        fill,
-        topLabel: `#${b.id} ${b.code} ${Math.round(Number(conf) * 100)}%`,
-        bottomLabel: statusTag,
-      });
-    }
-
-    // Highlight empty slot alert box if ERR,EMPTY recently occurred
-    if (world.emptyAlertPart) {
-      const part = H3D.PARTS.find((p) => p.id === world.emptyAlertPart);
-      if (part) {
-        const pe = H3D.projectPoint(part.slot, basis, cam, w, h);
-        if (pe) {
-          drawDetectionBox(ctx, pe.x - 24, pe.y - 24, pe.x + 24, pe.y + 24, '#D9534F', {
-            active: true,
-            pulse,
-            dashed: true,
-            fill: 'rgba(217, 83, 79, 0.14)',
-            topLabel: `SLOT #${part.id} EMPTY`,
-            bottomLabel: 'ERR,EMPTY · 보충 필요',
-          });
-        }
-      }
-    }
-
-    // 8. Subtle camera scanline & monochrome optical HUD overlay
+    // 2. Camera HUD (top bar + bottom hint)
     ctx.save();
     ctx.fillStyle = 'rgba(255, 255, 255, 0.016)';
-    for (let y = 0; y < h; y += 4) {
-      ctx.fillRect(0, y, w, 1);
-    }
+    for (let y = 0; y < h; y += 4) ctx.fillRect(0, y, w, 1);
 
-    // Top camera telemetry bar
     ctx.fillStyle = 'rgba(14, 17, 21, 0.88)';
     ctx.fillRect(0, 0, w, 24);
     ctx.fillStyle = '#D9534F';
     ctx.beginPath();
     ctx.arc(12, 12, 3.2, 0, Math.PI * 2);
     ctx.fill();
-
     ctx.font = '600 10px "IBM Plex Mono", Consolas, monospace';
     ctx.fillStyle = '#DCE0E5';
-    ctx.fillText('REC  CAM-01 // VISION BBOX + PROXIMITY', 22, 15.5);
-
+    const leftTxt = 'CAM-01 · 부품 트레이';
+    ctx.fillText(leftTxt, 22, 15.5);
+    const leftEnd = 22 + ctx.measureText(leftTxt).width + 16;
     const now = new Date();
     const ts = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const rightOptions = [`인식 ${detections.length}/3  ${ts}`, `인식 ${detections.length}/3`, ''];
+    const rightTxt = rightOptions.find((x) => ctx.measureText(x).width <= w - 10 - leftEnd) || '';
     ctx.textAlign = 'right';
     ctx.fillStyle = '#8E97A2';
-    ctx.fillText(`OBJ:${detections.length}  THR:${threshold.toFixed(1)}cm  ${ts}`, w - 10, 15.5);
+    if (rightTxt) ctx.fillText(rightTxt, w - 10, 15.5);
     ctx.textAlign = 'left';
 
-    // Bottom interaction hint strip inside camera
     ctx.fillStyle = 'rgba(14, 17, 21, 0.80)';
     ctx.fillRect(0, h - 20, w, 20);
     ctx.font = '500 9.5px "IBM Plex Mono", Consolas, monospace';
-    ctx.fillStyle = anyInRange ? '#6FBF73' : '#858E98';
-    const hint = world.proximityMode
-      ? 'PROXIMITY MODE: 공 네모칸을 드래그해 로봇손 가까이 가져가면 자동 파지'
-      : 'CLICK BBOX: 부품 즉시 요청  ·  DRAG BALL: 근접 거리 테스트';
-    ctx.fillText(hint, 10, h - 6.5);
+    ctx.fillStyle = '#858E98';
+    const hint = ['박스를 누르면 그 부품을 바로 요청해요', '박스 클릭: 부품 요청', ''].find((x) => ctx.measureText(x).width <= w - 20) || '';
+    if (hint) ctx.fillText(hint, 10, h - 6.5);
     ctx.restore();
 
-    // 9. Virtual 21-Point Gesture PiP (top-right)
-    drawGesturePiP(ctx, w, h, world);
+    // 3. Labels without overlap
+    const layout = H3D.createLabelLayout(w, h, { top: 26, bottom: 22 });
+    for (const d of detections) layout.reserve(d.cx - d.r, d.cy - d.r, d.r * 2, d.r * 2);
+    visLabels.sort((a, b) => a.priority - b.priority);
+    for (const L of visLabels) {
+      H3D.drawLayoutLabel(ctx, layout, L.x, L.y, L.text, {
+        prefer: L.prefer === 'below' ? 'below' : undefined,
+        font: L.active ? '700 11px "IBM Plex Mono", Consolas, monospace' : '600 10.5px "IBM Plex Mono", Consolas, monospace',
+        color: L.active ? '#121519' : L.color,
+        plate: L.active ? L.color : 'rgba(18, 22, 27, 0.9)',
+        border: L.active ? null : L.color,
+        height: 17,
+        padX: 5,
+      });
+    }
+    visLabels = [];
 
     return { detections, cam, basis };
   }

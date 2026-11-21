@@ -171,3 +171,62 @@ class MicrobitHand(Hand):
         self._send(CMD_HOME)
         self._wait_for({"DONE"}, "HOME")
         return True
+
+
+class VisionHand(Hand):
+    """다른 Hand(가짜/모의/실물)를 감싸 VERIFY 단계의 부품 대조만 YOLO 검출로 대체한다.
+
+    frame_provider 는 BGR 프레임(np.ndarray) 또는 None 을 반환하는 함수다
+    (카메라 1프레임 캡처, 업로드한 트레이 이미지 등).
+    """
+
+    def __init__(self, base: Hand, detector, frame_provider):
+        self.base = base
+        self.detector = detector
+        self.frame_provider = frame_provider
+        self.vision_frame = None      # RGB 주석 프레임 (대시보드 CAM-01 표시용)
+        self.vision_note = ""
+        self.last_counts: dict[int, int] = {}
+
+    def __getattr__(self, name):
+        # protocol_trace, last_error, held 등은 감싼 핸드의 값을 그대로 노출
+        return getattr(self.base, name)
+
+    def observe(self, part_id: int) -> int | None:
+        import cv2
+
+        from vision.detector import draw_detections, summarize
+
+        # 로봇 쪽 동작(SHOW,N LED 표시 등)은 감싼 핸드가 그대로 수행
+        base_seen = self.base.observe(part_id)
+        frame = self.frame_provider()
+        if frame is None:
+            self.vision_note = "YOLO 대조용 프레임을 얻지 못했습니다."
+            return None
+        dets = self.detector.detect(frame)
+        summary = summarize(dets)
+        self.last_counts = dict(summary.part_counts)
+        c = summary.part_counts
+        draw_detections(frame, dets, banner=f"YOLO VERIFY #{part_id} | 1:{c[1]} 2:{c[2]} 3:{c[3]}",
+                        passed=c.get(part_id, 0) > 0)
+        self.vision_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # 실패 주입은 실물 대조보다 우선 (시험용)
+        if getattr(self.base, "force_wrong", False):
+            self.vision_note = f"[고장 주입] 대조 불일치 강제 (감지 #{base_seen})"
+            return base_seen
+        if c.get(part_id, 0) > 0:
+            self.vision_note = f"YOLO 검출 확인: #{part_id} {c[part_id]}개 ({summary.part_best_conf[part_id]:.2f})"
+            return part_id
+        if summary.parts_visible == 0:
+            self.vision_note = "YOLO: 트레이에서 부품이 검출되지 않음"
+            return None
+        other = max(summary.part_best_conf, key=summary.part_best_conf.get)
+        self.vision_note = f"YOLO: #{part_id} 미검출, 대신 #{other} 검출"
+        return other
+
+    def pick(self, part_id: int) -> bool:
+        return self.base.pick(part_id)
+
+    def deliver(self) -> bool:
+        return self.base.deliver()
