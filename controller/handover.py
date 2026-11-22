@@ -1,8 +1,10 @@
 """받기 작업 상태 머신 (서 있는 AiHand, 팔 없음 — 사람이 손바닥에 부품을 쥐어 준다).
 
-  IDLE ─요청(볼트/너트)→ REQUEST(손 펴는 중) → RECEIVE(손 영역에 부품이 놓이고 사람 손이 빠질 때까지)
+  IDLE ─요청(볼트/너트)→ REQUEST(손 펴는 중) → RECEIVE(YOLO 가 쟁반에서 고른 부품을 사람이 집어 손 영역에 올릴 때까지)
       → 맞는 부품: GRIP(쥐기) → PLACE(손목 회전 · 펴서 내려놓기 · 복귀) → HOME(손이 비었는지 확인) → IDLE
       → 틀린 부품: VERIFY(NG — 손목 흔들기) → RECEIVE(그 부품을 치울 때까지 다시 판정하지 않음)
+      → (VLM 켜짐) YOLO 점수가 낮으면: VERIFY(VLM 교차 확인) → 일치: GRIP / 불일치: 작업자 확인 버튼 → GRIP
+  (가리키기 켜짐) REQUEST 안에서: 손 펴기 → 쟁반에서 YOLO 가 고른 부품 쪽으로 손목 회전 → 잠깐 멈춤 → 정면 복귀 → RECEIVE
 
 link        : send(cmd) -> bool|None / poll() -> list[str]
 frame_result: {"label", "confidence", "box", "motion"}  (손 영역 기준, 카메라가 없으면 None)
@@ -43,7 +45,7 @@ class HandoverTask:
     def __init__(self, link, clock: Callable[[], float] = time.monotonic,
                  stable_frames: int = 6, min_conf: float = 0.45, cmd_timeout: float = 10.0,
                  max_move_px: int = 24, motion_still: float = 6.0, place_angle: int = PLACE_ANGLE,
-                 empty_check_s: float = 1.5, rearm_frames: int = 5):
+                 empty_check_s: float = 1.5, rearm_frames: int = 5, vlm=None):
         self.link = link
         self.clock = clock
         self.stable_frames = stable_frames
@@ -54,6 +56,8 @@ class HandoverTask:
         self.place_angle = place_angle
         self.empty_check_s = empty_check_s
         self.rearm_frames = rearm_frames
+        self.vlm = vlm                          # vision.vlm_bridge.VlmBridge (없으면 기존과 똑같이 동작)
+        self.frame_source: Callable[[], object] | None = None   # 교차 확인용 현재 카메라 프레임
 
         self.state = "IDLE"
         self.target: str | None = None
@@ -74,6 +78,16 @@ class HandoverTask:
         self._check_seen = 0                    # 내려놓기 후 확인: 부품이 보인 프레임 수
         self._check_total = 0
         self._cycle_t0: float | None = None
+        self._vlm_job = None                    # 교차 확인 중인 작업 (Future, 확인할 YOLO 결과)
+        self._vlm_hold = False                  # VLM 과 YOLO 가 달라 작업자 확인을 기다리는 중
+        self.vlm_blocked = 0                    # VLM 이 막은 횟수 (불일치 → 작업자 확인)
+        self.tray: dict = {"items": [], "pick": None}   # 쟁반 위 YOLO 탐지 (번호는 왼쪽부터)
+        self._tray_logged = None
+        # 가리키기: 쟁반 왼쪽 끝/오른쪽 끝을 향하는 손목 각도 (None 이면 끔)
+        self.point_cfg: dict | None = None
+        self._point_phase: str | None = None    # wait_pick → turning → hold → back
+        self._point_t = 0.0
+        self._point_angle: int | None = None
 
         # 실적
         self.requests = 0
@@ -184,10 +198,18 @@ class HandoverTask:
         return {"pan": round(pan, 1), "grip": round(grip, 3)}
 
     # ---- operator actions ----
-    def request(self, text: str) -> dict:
-        target, reply = parse_request(text)
+    def request(self, text: str, pre: tuple | None = None) -> dict:
+        """pre: 미리 해석한 결과 (target, reply, info). VLM 해석은 느릴 수 있어 화면 잠금 밖에서 먼저 함."""
+        if pre is not None:
+            target, reply, info = pre
+        elif self.vlm is not None:
+            target, reply, info = self.vlm.interpret(text)
+        else:
+            (target, reply), info = parse_request(text), {"method": "규칙"}
         self.parse_reply = reply
-        self._log("SYS", f"[해석] '{text}' → {LABEL_KO[target] if target else '판단 불가'}")
+        how = info.get("method", "규칙") + (f" {info['seconds']}s" if info.get("seconds") else "")
+        self._log("SYS", f"[해석] '{text}' → {LABEL_KO[target] if target else '판단 불가'} ({how})"
+                  + (f" — {info['reason']}" if info.get("method", "").startswith("VLM") and info.get("reason") else ""))
         if target is None:
             return {"ok": False, "reply": reply}
         if self.stopped:
@@ -203,8 +225,44 @@ class HandoverTask:
         self._send("OPEN")
         return {"ok": True, "reply": reply, "target": target}
 
+    def set_pointing(self, left_angle: float, right_angle: float, hold_s: float = 1.5, wait_s: float = 2.0) -> None:
+        """쟁반에서 고른 부품 쪽으로 손목을 돌려 '알아봤다'를 보여 주기. 쟁반 왼쪽 끝·오른쪽 끝 각도로 보정."""
+        self.point_cfg = {"left": float(left_angle), "right": float(right_angle), "hold": hold_s, "wait": wait_s}
+
+    def _point_reset(self) -> None:
+        self._point_phase, self._point_angle = None, None
+
+    def _point_step(self, now: float) -> None:
+        """REQUEST 상태에서 가리키기 진행"""
+        name = LABEL_KO[self.target]
+        if self._point_phase == "wait_pick":
+            pick = next((d for d in self.tray["items"] if d["n"] == self.tray["pick"]), None)
+            if pick is not None and pick.get("xn") is not None:
+                c = self.point_cfg
+                ang = int(round(max(0.0, min(180.0, c["left"] + (c["right"] - c["left"]) * pick["xn"]))))
+                self._point_phase, self._point_angle = "turning", ang
+                self._log("SYS", f"[가리키기] 쟁반 {pick['n']}번 {name} → 손목 {ang}°")
+                self.message = f"쟁반 {pick['n']}번({name}) 쪽을 가리키는 중"
+                self._send(f"PAN,{ang}")
+            elif now - self._point_t > self.point_cfg["wait"]:
+                self._log("SYS", f"[가리키기] 쟁반에서 {name}을(를) 못 찾아 건너뜀")
+                self._point_reset()
+                self._enter_receive()
+        elif self._point_phase == "hold" and now >= self._point_t:
+            self._point_phase = "back"
+            self._send("PAN,90")
+
+    def _enter_receive(self) -> None:
+        self._enter("RECEIVE", f"손을 폈어요 — {LABEL_KO[self.target]}을(를) 손 영역에 올려 주세요. 닿으면 쥐어요")
+
     def manual_confirm(self) -> None:
         """'쥐어줬어요' / micro:bit 버튼 A: 정지·움직임 조건을 건너뛰고 다음 탐지로 바로 판정."""
+        if self.state == "VERIFY" and self._vlm_hold:
+            self._vlm_hold = False
+            self._log("SYS", f"작업자 확인 — YOLO 판단대로 {LABEL_KO[self.target]} 쥐기")
+            self._enter("GRIP", f"작업자 확인 — {LABEL_KO[self.target]} 쥐는 중", "pass")
+            self._send("GRIP")
+            return
         if self.state == "RECEIVE":
             self._force_verify = True
             self._rearm_wait = False
@@ -219,6 +277,8 @@ class HandoverTask:
             self._send("GRIP")
 
     def cancel(self) -> None:
+        self._vlm_job, self._vlm_hold = None, False
+        self._point_reset()
         if self.state in ("REQUEST", "RECEIVE", "VERIFY"):
             self._log("SYS", "요청 취소")
             self.target = None
@@ -228,6 +288,8 @@ class HandoverTask:
 
     def stop(self) -> None:
         self.stopped = True
+        self._vlm_job, self._vlm_hold = None, False
+        self._point_reset()
         self._pose_from = self.pose()
         self._motion = None
         for _ in range(3):                       # 이동 중 펌웨어가 USB 를 잠깐씩만 보므로 여러 번
@@ -268,7 +330,11 @@ class HandoverTask:
             return
         if frame_result is not None:
             self.last_seen = frame_result
-        if self.state == "RECEIVE" and frame_result is not None:
+        if self.state == "REQUEST" and self._point_phase in ("wait_pick", "hold") and not self._awaiting:
+            self._point_step(now)
+        elif self.state == "VERIFY" and self._vlm_job is not None:
+            self._vlm_result()
+        elif self.state == "RECEIVE" and frame_result is not None:
             self._receive(frame_result)
         elif self.state == "HOME" and self._check_total >= 0 and self.target:
             self._empty_check(frame_result, now)
@@ -309,12 +375,78 @@ class HandoverTask:
         label = res["label"]
         self._log("SYS", f"[닿음] 손 영역에 {LABEL_KO[label]} ({res.get('confidence', 0):.2f}) — {res.get('reason', '')}")
         if label == self.target:
+            conf = float(res.get("confidence", 0.0))
+            if self.vlm is not None and self.vlm.should_check(conf) and self._start_vlm_check(res):
+                return
             self._enter("GRIP", f"{LABEL_KO[label]} 확인 — 쥐는 중", "pass")
             self._send("GRIP")
         else:
             self.reject_count += 1
             self._enter("VERIFY", f"손에 놓인 건 {LABEL_KO[label]}이에요 — {LABEL_KO[self.target]}을(를) 주세요", "warn")
             self._send("NG")
+
+    # ---- 쟁반 안내: YOLO 가 쟁반 위 부품 중 요청한 것을 골라 사람에게 알려 줌 ----
+    def update_tray(self, items: list[dict]) -> None:
+        """items: [{"label", "conf", "box"}] (손 영역 밖 탐지). 번호를 붙이고 요청 부품을 고른다."""
+        items = sorted(items, key=lambda d: d["box"][0] + d["box"][2] / 2)
+        for i, d in enumerate(items, 1):
+            d["n"] = i
+        pick = None
+        if self.target and self.state in ("REQUEST", "RECEIVE"):
+            same = [d for d in items if d["label"] == self.target]
+            pick = max(same, key=lambda d: d["conf"])["n"] if same else None
+        self.tray = {"items": items, "pick": pick}
+        if not self.target or self.state not in ("REQUEST", "RECEIVE"):
+            self._tray_logged = None
+            return
+        key = (self.target, pick, len(items))
+        if key != self._tray_logged:                    # 판단이 바뀔 때만 기록 (대시보드 로그)
+            self._tray_logged = key
+            seen = ", ".join(f"{d['n']}번 {LABEL_KO.get(d['label'], d['label'])} {d['conf']:.2f}" for d in items) or "없음"
+            res = f"{LABEL_KO[self.target]}은(는) {pick}번" if pick else f"{LABEL_KO[self.target]} 없음"
+            self._log("SYS", f"[쟁반 YOLO] {seen} → {res}")
+        if self.state == "RECEIVE" and not self._rearm_wait and self._streak == 0:
+            name = LABEL_KO[self.target]
+            self.message = (f"쟁반 {pick}번({name})을 집어 손 영역에 올려 주세요" if pick else
+                            f"쟁반에서 {name}이(가) 안 보여요 — {name}을(를) 손 영역에 올려 주세요")
+
+    # ---- VLM 교차 확인 ----
+    def _start_vlm_check(self, res: dict) -> bool:
+        frame = self.frame_source() if self.frame_source else None
+        img = self.vlm.crop(frame, res.get("box"))
+        if img is None:
+            return False                                 # 사진이 없으면 YOLO 판단대로
+        self._vlm_job = (self.vlm.submit_check(img), res)
+        self._enter("VERIFY", f"YOLO {LABEL_KO[res['label']]} {res.get('confidence', 0):.2f} — "
+                              f"점수가 낮아 VLM이 한 번 더 확인하는 중", "accent")
+        return True
+
+    def _vlm_result(self) -> None:
+        fut, res = self._vlm_job
+        if not fut.done():
+            return
+        self._vlm_job = None
+        try:
+            v = fut.result()
+        except Exception as exc:
+            v = {"label": None, "seen": str(exc), "seconds": 0, "ok": False}
+        yolo = res["label"]
+        st = self.vlm.stats
+        if v["label"] == yolo:
+            st["check_agree"] += 1
+            self._log("SYS", f"[VLM 확인] {LABEL_KO[yolo]} 일치 ({v['seconds']}s) — {v['seen']}")
+            self._enter("GRIP", f"{LABEL_KO[yolo]} 확인 (YOLO·VLM 일치) — 쥐는 중", "pass")
+            self._send("GRIP")
+            return
+        if v["ok"]:
+            st["check_disagree"] += 1
+        else:
+            st["check_fail"] += 1
+        self.vlm_blocked += 1
+        vl = LABEL_KO.get(v["label"], "모름") if v["label"] else "모름"
+        self._log("SYS", f"[VLM 확인] YOLO {LABEL_KO[yolo]} / VLM {vl} ({v['seconds']}s) — 작업자 확인 대기")
+        self._vlm_hold = True
+        self._enter("VERIFY", f"YOLO는 {LABEL_KO[yolo]}, VLM은 {vl} — 맞으면 [쥐어줬어요] 버튼, 아니면 취소", "warn")
 
     def _empty_check(self, res: dict | None, now: float) -> None:
         if res is not None:
@@ -354,7 +486,16 @@ class HandoverTask:
         what = raw.split(",", 1)[1]
         self._awaiting = None
         if what == "OPEN" and self.state == "REQUEST":
-            self._enter("RECEIVE", f"손을 폈어요 — {LABEL_KO[self.target]}을(를) 손 영역에 올려 주세요. 닿으면 쥐어요")
+            if self.point_cfg and self.target:
+                self._point_phase, self._point_t = "wait_pick", self.clock()
+                self.message = f"쟁반에서 {LABEL_KO[self.target]}을(를) 찾는 중"
+            else:
+                self._enter_receive()
+        elif what == "PAN" and self.state == "REQUEST" and self._point_phase == "turning":
+            self._point_phase, self._point_t = "hold", self.clock() + self.point_cfg["hold"]
+        elif what == "PAN" and self.state == "REQUEST" and self._point_phase == "back":
+            self._point_reset()
+            self._enter_receive()
         elif what == "NG" and self.state == "VERIFY":
             self._rearm_wait = True
             self._empty_frames = 0
@@ -380,6 +521,8 @@ class HandoverTask:
             "failed": self.fail_count,
             "rejected": self.reject_count,
             "success_rate": round(100 * self.done_count / finished) if finished else None,
+            "vlm_blocked": self.vlm_blocked,
+            "vlm": dict(self.vlm.stats) if self.vlm is not None else None,
             "avg_cycle_s": round(sum(self.cycle_times) / len(self.cycle_times), 1) if self.cycle_times else None,
         }
 
@@ -401,6 +544,9 @@ class HandoverTask:
             "moving": bool(self._motion and self._awaiting),
             "place_angle": self.place_angle,
             "rearm_wait": self._rearm_wait,
+            "vlm_state": "checking" if self._vlm_job is not None else ("hold" if self._vlm_hold else ""),
+            "point": {"phase": self._point_phase, "angle": self._point_angle} if self.point_cfg else None,
+            "tray": {"items": [{k: v for k, v in d.items()} for d in self.tray["items"]], "pick": self.tray["pick"]},
             "stats": self.stats(),
             "done": self.done_count,
             "rejected": self.reject_count,

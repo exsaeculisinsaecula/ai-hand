@@ -4017,9 +4017,9 @@
     const t = snap.target_ko || '부품';
     const now = {
       IDLE: snap.stopped ? '비상 정지됨' : '대기 중',
-      REQUEST: `${t} 받을 준비 · 손 펴는 중`,
-      RECEIVE: snap.rearm_wait ? '부품을 치워 주세요' : `${t}을(를) 손에 올려 주세요`,
-      VERIFY: '다른 부품이에요 · NG',
+      REQUEST: snap.point && snap.point.phase && snap.point.phase !== 'wait_pick' ? `쟁반 ${snap.tray && snap.tray.pick ? snap.tray.pick + '번 ' : ''}${t} 쪽을 가리키는 중` : (snap.point && snap.point.phase === 'wait_pick' ? `쟁반에서 ${t} 찾는 중` : `${t} 받을 준비 · 손 펴는 중`),
+      RECEIVE: snap.rearm_wait ? '부품을 치워 주세요' : (snap.tray && snap.tray.pick ? `쟁반 ${snap.tray.pick}번(${t})을 손에 올려 주세요` : `${t}을(를) 손에 올려 주세요`),
+      VERIFY: snap.vlm_state === 'checking' ? 'VLM 교차 확인 중' : snap.vlm_state === 'hold' ? 'YOLO·VLM 판단 다름 · 작업자 확인' : '다른 부품이에요 · NG',
       GRIP: `${t} 쥐는 중`,
       PLACE: `${t} 내려놓는 중`,
       HOME: snap.target ? '손이 비었는지 확인 중' : '복귀 중',
