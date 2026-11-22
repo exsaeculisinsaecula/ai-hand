@@ -317,14 +317,20 @@ class MockLink:
         return {"status": "connected", "port": "mock", "fw": "mock", "fw_expected": "mock", "last_rx_s": 0.0}
 
 
+TRAY_MIN_CONF = 0.45          # 쟁반 안내에 쓸 YOLO 최소 점수 (겹친 오탐 0.3 대 제외)
+
+
 class Runtime:
     ROI_FILE = ROOT / "data" / "palm_roi.json"
     SETTINGS_FILE = ROOT / "data" / "handover_settings.json"
     DEFAULT_ROI = (0.30, 0.35, 0.65, 0.75)       # 팀 zones.json 의 palm 영역
 
-    def __init__(self, link, camera_index: int, model_path: Path | None = None, conf: float = 0.35):
+    def __init__(self, link, camera_index: int, model_path: Path | None = None, conf: float = 0.35, vlm=None,
+                 tray_roi: tuple | None = None):
+        self.tray_roi = tray_roi                    # 쟁반 영역(정규화). 없으면 '손 영역 밖 전체'를 쟁반으로 봄
         self.link = link
-        self.task = HandoverTask(link)
+        self.task = HandoverTask(link, vlm=vlm)
+        self.task.frame_source = lambda: self.frame           # VLM 교차 확인용 현재 프레임
         self.clf = PartClassifier()                 # YOLO 를 못 쓸 때의 대체 판별기
         self.yolo = None
         self.detector_info = "모양 규칙 (YOLO 없음)"
@@ -335,6 +341,9 @@ class Runtime:
             except Exception as exc:                # ultralytics/torch 미설치 등
                 self.detector_info = f"모양 규칙 (YOLO 불러오기 실패: {exc.__class__.__name__})"
         self.task._log("SYS", f"인식기: {self.detector_info}")
+        if vlm is not None:
+            self.task._log("SYS", f"VLM: {vlm.model} — 요청 해석 보조 + YOLO 점수 {vlm.verify_below:.2f} 미만이면 교차 확인")
+            vlm.warmup()
         self.camera_index = camera_index
         self.lock = threading.Lock()
         self.frame = None
@@ -403,6 +412,22 @@ class Runtime:
             cv2.rectangle(vis, (x0, y0), (x1, y1), col, 1)
         cv2.putText(vis, "TOUCH" if touching else "HAND ZONE", (x0 + 6, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7 * k, col, th, cv2.LINE_AA)
+        # 쟁반: YOLO 가 고른 부품 (요청 중일 때)
+        tray = self.task.tray
+        if self.tray_roi:
+            tx0, ty0, tx1, ty1 = (int(self.tray_roi[0] * w), int(self.tray_roi[1] * h),
+                                  int(self.tray_roi[2] * w), int(self.tray_roi[3] * h))
+            cv2.rectangle(vis, (tx0, ty0), (tx1, ty1), (170, 170, 170), 1)
+            cv2.putText(vis, "TRAY", (tx0 + 6, ty0 + int(24 * k)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * k, (170, 170, 170), th)
+        for d in tray["items"]:
+            bx, by, bw, bh = d["box"]
+            picked = tray["pick"] == d["n"]
+            c = (40, 200, 40) if picked else (150, 150, 150)
+            cv2.putText(vis, f"#{d['n']}", (bx, by + bh + int(28 * k)), cv2.FONT_HERSHEY_SIMPLEX, 0.9 * k, c, th + 1, cv2.LINE_AA)
+            if picked:
+                cv2.rectangle(vis, (bx - 6, by - 6), (bx + bw + 6, by + bh + 6), c, th + 3)
+                cv2.putText(vis, "PICK THIS", (bx, max(20, by - int(40 * k))), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.9 * k, c, th + 1, cv2.LINE_AA)
         # 탐지 박스
         for d in self.overlay.get("dets", []):
             bx, by, bw, bh = d["box"]
@@ -512,9 +537,30 @@ class Runtime:
             self.infer_ms = 0.8 * self.infer_ms + 0.2 * (time.perf_counter() - t0) * 1000
             d = res.to_dict()
             d["motion"] = round(motion, 2)
+            tray_items = self._tray_items(frame, dets)
             with self.lock:
                 self.overlay = {"dets": dets, "best": d if res.label != "none" else None}
                 self.result = d
+                self.task.update_tray(tray_items)
+
+    def _tray_items(self, frame, dets) -> list[dict]:
+        """손 영역 밖(또는 지정한 쟁반 영역 안)의 볼트·너트 탐지"""
+        if self.yolo is None:
+            return []
+        h, w = frame.shape[:2]
+        px0, py0, px1, py1 = self.palm_roi
+        out = []
+        for d in dets:
+            bx, by, bw, bh = d["box"]
+            cx, cy = (bx + bw / 2) / w, (by + bh / 2) / h
+            in_palm = px0 <= cx <= px1 and py0 <= cy <= py1
+            in_tray = (self.tray_roi[0] <= cx <= self.tray_roi[2] and self.tray_roi[1] <= cy <= self.tray_roi[3]) \
+                if self.tray_roi else not in_palm
+            if in_tray and not in_palm and d["label"] in ("bolt", "nut") and d["conf"] >= TRAY_MIN_CONF:
+                tx0, tx1 = (self.tray_roi[0], self.tray_roi[2]) if self.tray_roi else (0.0, 1.0)
+                xn = round(max(0.0, min(1.0, (cx - tx0) / max(1e-6, tx1 - tx0))), 3)   # 쟁반 안 가로 위치 0=왼쪽 끝
+                out.append({"label": d["label"], "conf": round(float(d["conf"]), 2), "box": tuple(d["box"]), "xn": xn})
+        return out
 
     def _task_loop(self) -> None:
         was_connected = self.link.connected
@@ -558,12 +604,15 @@ class Runtime:
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        pre = None
+        if a == "request" and self.task.vlm is not None and self.link.connected:
+            pre = self.task.vlm.interpret(str(p.get("text", "")))   # VLM 은 느릴 수 있어 잠금 밖에서 먼저
         with self.lock:
             out: dict = {}
             if a in ("request", "raw", "confirm", "hand") and not self.link.connected:
                 out = {"ok": False, "reply": "로봇이 연결되지 않았어요 — USB · 전원을 확인하세요"}
             elif a == "request":
-                out = self.task.request(str(p.get("text", "")))
+                out = self.task.request(str(p.get("text", "")), pre=pre)
             elif a in ("confirm", "hand"):
                 if self._camera_ok():
                     self.task.manual_confirm()
@@ -696,12 +745,31 @@ def main() -> None:
     ap.add_argument("--model", type=Path, default=ROOT / "models" / "neuralgrip_best_two.pt",
                     help="YOLO 가중치 (팀 best_two.pt: 볼트·너트). 없거나 불러오지 못하면 모양 규칙으로 동작")
     ap.add_argument("--conf", type=float, default=0.35, help="YOLO 탐지 최소 신뢰도 (쥐기 판단은 0.6 이상)")
+    ap.add_argument("--vlm", action="store_true", help="VLM(Ollama) 연결: 요청 해석 보조 + 쥐기 전 교차 확인")
+    ap.add_argument("--vlm-model", default="gemma3:4b")
+    ap.add_argument("--vlm-url", default="http://localhost:11434")
+    ap.add_argument("--vlm-verify-below", type=float, default=0.70,
+                    help="YOLO 점수가 이보다 낮을 때만 VLM 교차 확인 (0 = 교차 확인 끔, 1 = 항상)")
+    ap.add_argument("--tray-roi", default="", help="쟁반 영역 x0,y0,x1,y1 (0~1). 생략하면 손 영역 밖 전체를 쟁반으로 봄")
+    ap.add_argument("--point", action="store_true", help="쟁반에서 고른 부품 쪽으로 손목을 돌려 알려 주기")
+    ap.add_argument("--point-left", type=float, default=135, help="쟁반 왼쪽 끝을 향하는 손목 각도 (보정)")
+    ap.add_argument("--point-right", type=float, default=45, help="쟁반 오른쪽 끝을 향하는 손목 각도 (보정)")
+    ap.add_argument("--point-hold", type=float, default=1.5, help="가리킨 채 멈추는 시간 (초)")
     ap.add_argument("--http-port", type=int, default=8090)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
 
     link = MockLink() if a.mock else RobotLink(port_hint=a.port)
-    rt = Runtime(link, a.camera, model_path=a.model, conf=a.conf)
+    vlm = None
+    if a.vlm:
+        from vision.vlm_bridge import VlmBridge
+        vlm = VlmBridge(a.vlm_model, a.vlm_url, verify_below=a.vlm_verify_below)
+    tray_roi = tuple(float(v) for v in a.tray_roi.split(",")) if a.tray_roi else None
+    rt = Runtime(link, a.camera, model_path=a.model, conf=a.conf, vlm=vlm, tray_roi=tray_roi)
+    if a.point:
+        rt.task.set_pointing(a.point_left, a.point_right, a.point_hold)
+        rt.task._log("SYS", f"가리키기 켜짐 — 쟁반 왼쪽 끝 {a.point_left:.0f}° · 오른쪽 끝 {a.point_right:.0f}°"
+                     + ("" if tray_roi else " (쟁반 영역 미지정: 화면 전체 가로 기준)"))
     if not link.is_mock:
         link.log = rt.task._log
         link.on_connect = rt.on_robot_connect
