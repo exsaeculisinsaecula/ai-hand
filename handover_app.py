@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from collections import deque
 import functools
 import http.server
@@ -345,6 +346,7 @@ class Runtime:
             self.task._log("SYS", f"VLM: {vlm.model} — 요청 해석 보조 + YOLO 점수 {vlm.verify_below:.2f} 미만이면 교차 확인")
             vlm.warmup()
         self.camera_index = camera_index
+        self._cam_switch = False
         self.lock = threading.Lock()
         self.frame = None
         self.frame_id = 0
@@ -370,16 +372,26 @@ class Runtime:
         except Exception:
             return self.DEFAULT_ROI
 
-    def _load_settings(self) -> None:
+    @classmethod
+    def read_settings(cls) -> dict:
         try:
-            st = json.loads(self.SETTINGS_FILE.read_text())
-            self.task.place_angle = int(st.get("place_angle", self.task.place_angle))
+            return json.loads(cls.SETTINGS_FILE.read_text())
         except Exception:
+            return {}
+
+    def _load_settings(self) -> None:
+        st = self.read_settings()
+        try:
+            self.task.place_angle = int(st.get("place_angle", self.task.place_angle))
+        except (TypeError, ValueError):
             pass
 
-    def _save_settings(self) -> None:
+    def _save_settings(self, **extra) -> None:
+        st = self.read_settings()
+        st["place_angle"] = self.task.place_angle
+        st.update(extra)
         self.SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        self.SETTINGS_FILE.write_text(json.dumps({"place_angle": self.task.place_angle}))
+        self.SETTINGS_FILE.write_text(json.dumps(st, ensure_ascii=False))
 
     def set_roi(self, x0, y0, x1, y1) -> bool:
         x0, x1 = sorted((max(0.0, min(1.0, float(x0))), max(0.0, min(1.0, float(x1)))))
@@ -444,6 +456,7 @@ class Runtime:
 
     # ---- camera: capture + stream only ----
     def _open_camera(self):
+        self._cam_switch = False
         while self.running:
             cap = cv2.VideoCapture(self.camera_index)
             if cap.isOpened():
@@ -461,6 +474,13 @@ class Runtime:
         fails = 0
         last = time.perf_counter()
         while self.running and cap is not None:
+            if self._cam_switch:                    # 대시보드에서 다른 카메라를 고름
+                cap.release()
+                self.jpeg = None
+                self.fps = 0.0
+                cap = self._open_camera()
+                fails = 0
+                continue
             ok, frame = cap.read()
             if not ok:
                 fails += 1
@@ -579,6 +599,93 @@ class Runtime:
         with self.lock:
             self.task._send("HOME")
 
+    # ---- 카메라 선택 ----
+    MAX_CAMERAS = 10
+
+    @staticmethod
+    def device_names() -> list[str]:
+        """운영체제가 알려 주는 카메라 이름 목록 (번호와의 대응은 보장되지 않아 참고용)."""
+        import platform
+        import subprocess
+        try:
+            if platform.system() == "Darwin":
+                r = subprocess.run(["system_profiler", "SPCameraDataType", "-json"], capture_output=True, text=True, timeout=8)
+                return [d.get("_name", "") for d in json.loads(r.stdout).get("SPCameraDataType", []) if d.get("_name")]
+            if platform.system() == "Windows":
+                r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                    "Get-PnpDevice -Class Camera,Image -Status OK | Select-Object -ExpandProperty FriendlyName"],
+                                   capture_output=True, text=True, timeout=10)
+                return [ln.strip() for ln in r.stdout.splitlines() if ln.strip()]
+            if platform.system() == "Linux":
+                from glob import glob
+                names = []
+                for dev in sorted(glob("/sys/class/video4linux/video*/name")):
+                    names.append(Path(dev).read_text().strip())
+                return names
+        except Exception:
+            pass
+        return []
+
+    def cameras_in_use(self) -> dict:
+        """{번호: 역할} — 지금 이 프로그램이 쓰는 카메라 (다시 열지 않고 최근 프레임으로 미리보기)"""
+        return {self.camera_index: "hand"}
+
+    def _frame_for_role(self, role: str):
+        return self.frame
+
+    @staticmethod
+    def _thumb(frame) -> str:
+        h, w = frame.shape[:2]
+        small = cv2.resize(frame, (320, max(1, int(320 * h / w))), interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode() if ok else ""
+
+    def scan_cameras(self) -> list[dict]:
+        """0~5번 카메라를 차례로 열어 미리보기 한 장씩. 쓰는 중인 카메라는 다시 열지 않는다."""
+        in_use = self.cameras_in_use()
+        out = []
+        misses = 0
+        for idx in range(self.MAX_CAMERAS):
+            if idx in in_use:
+                fr = self._frame_for_role(in_use[idx])
+                item = {"index": idx, "ok": fr is not None, "role": in_use[idx]}
+                if fr is not None:
+                    item.update(width=fr.shape[1], height=fr.shape[0], thumb=self._thumb(fr))
+                out.append(item)
+                misses = 0
+                continue
+            cap = cv2.VideoCapture(idx)
+            frame = None
+            if cap.isOpened():
+                for _ in range(12):                 # 자동 노출이 잡힐 때까지 몇 장 버림
+                    ok, f = cap.read()
+                    if ok:
+                        frame = f
+                    time.sleep(0.03)
+            cap.release()
+            if frame is None:
+                misses += 1
+                if misses >= 3 and idx >= 2:        # 연속 3번 없으면 그만 찾음
+                    break
+                continue
+            misses = 0
+            out.append({"index": idx, "ok": True, "role": None, "width": frame.shape[1],
+                        "height": frame.shape[0], "thumb": self._thumb(frame)})
+        found = ", ".join(str(c["index"]) + "번" for c in out) or "없음"
+        self.task._log("SYS", f"카메라 찾기: {found}")
+        return out
+
+    def select_camera(self, role: str, index: int) -> dict:
+        if role != "hand":
+            return {"ok": False, "reply": "이 모드에서는 손 카메라만 고를 수 있어요"}
+        if index == self.camera_index:
+            return {"ok": True, "reply": f"이미 {index}번 카메라를 쓰고 있어요"}
+        self.camera_index = index
+        self._cam_switch = True
+        self._save_settings(camera_index=index)
+        self.task._log("SYS", f"카메라를 {index}번으로 바꿨어요")
+        return {"ok": True, "reply": f"{index}번 카메라로 바꾸는 중"}
+
     def _camera_ok(self) -> bool:
         return self.jpeg is not None and not self.cam_error
 
@@ -588,6 +695,8 @@ class Runtime:
             snap["is_mock"] = self.link.is_mock
             snap["port"] = self.link.port
             snap["robot"] = self.link.info()
+            snap["camera_roles"] = ["hand"]
+            snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
             snap["camera"] = {"index": self.camera_index, "error": self.cam_error, "fps": round(self.fps, 1),
                               "running": self._camera_ok(), "infer_ms": round(self.infer_ms)}
             snap["detector"] = {"name": self.detector_info, "yolo": self.yolo is not None,
@@ -604,6 +713,23 @@ class Runtime:
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        if a == "camera_scan":                      # 카메라를 여는 데 시간이 걸려 잠금 밖에서
+            cams = self.scan_cameras()
+            st = self.state()
+            st["result"] = {"ok": True, "cameras": cams, "names": self.device_names()}
+            return st
+        if a == "camera_select":
+            try:
+                role, idx = str(p.get("role", "hand")), int(p["index"])
+            except (KeyError, TypeError, ValueError):
+                st = self.state()
+                st["result"] = {"ok": False, "reply": "카메라 번호가 잘못됐어요"}
+                return st
+            with self.lock:
+                out = self.select_camera(role, idx)
+            st = self.state()
+            st["result"] = out
+            return st
         pre = None
         if a == "request" and self.task.vlm is not None and self.link.connected:
             pre = self.task.vlm.interpret(str(p.get("text", "")))   # VLM 은 느릴 수 있어 잠금 밖에서 먼저
@@ -741,7 +867,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="AiHand 받기 작업 (로컬 인식)")
     ap.add_argument("--port", default="", help="micro:bit 시리얼 포트 (생략하면 자동 탐색 · 재연결)")
     ap.add_argument("--mock", action="store_true", help="로봇 없이 모의 micro:bit로 실행")
-    ap.add_argument("--camera", type=int, default=1, help="웹캠 번호 (이 Mac: 0=내장 FaceTime, 1=추가 USB 웹캠)")
+    ap.add_argument("--camera", type=int, default=None,
+                    help="웹캠 번호 (생략하면 대시보드에서 마지막으로 고른 카메라, 처음엔 1). 대시보드 [카메라 선택]으로 바꿀 수 있음")
     ap.add_argument("--model", type=Path, default=ROOT / "models" / "neuralgrip_best_two.pt",
                     help="YOLO 가중치 (팀 best_two.pt: 볼트·너트). 없거나 불러오지 못하면 모양 규칙으로 동작")
     ap.add_argument("--conf", type=float, default=0.35, help="YOLO 탐지 최소 신뢰도 (쥐기 판단은 0.6 이상)")
@@ -765,6 +892,8 @@ def main() -> None:
         from vision.vlm_bridge import VlmBridge
         vlm = VlmBridge(a.vlm_model, a.vlm_url, verify_below=a.vlm_verify_below)
     tray_roi = tuple(float(v) for v in a.tray_roi.split(",")) if a.tray_roi else None
+    if a.camera is None:
+        a.camera = int(Runtime.read_settings().get("camera_index", 1))
     rt = Runtime(link, a.camera, model_path=a.model, conf=a.conf, vlm=vlm, tray_roi=tray_roi)
     if a.point:
         rt.task.set_pointing(a.point_left, a.point_right, a.point_hold)

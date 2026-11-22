@@ -2216,6 +2216,32 @@
   .ho-info > div { display: grid; grid-template-columns: 130px 1fr; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-faint); font-size: 15px; }
   .ho-info dt { color: var(--text-muted); letter-spacing: 0.08em; }
   .ho-info dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+
+  .cam-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; background: rgba(45, 42, 36, 0.35); }
+  .cam-modal[hidden] { display: none !important; }
+  .cam-modal-panel { width: min(1100px, 100%); max-height: calc(100vh - 48px); overflow: auto; background: var(--window); border: 1px solid var(--line-strong); padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(30, 28, 24, 0.25); }
+  .cam-picker-names { font-size: 14px; color: var(--text-muted); }
+  .cam-picker-names:empty { display: none; }
+  .cam-picker-head { display: flex; align-items: center; gap: 8px; }
+  .cam-picker-head b { font-size: 24px; letter-spacing: 0.04em; margin-right: auto; }
+  .cam-picker-head .mp-btn { height: 44px; min-height: 0; padding: 0 18px; font-size: 16px; }
+  .cam-picker-roles { display: flex; border: 1px solid var(--line); }
+  .cam-picker-roles[hidden] { display: none !important; }
+  .cam-picker-roles button { font: inherit; font-size: 14px; height: 36px; padding: 0 12px; border: 0; background: transparent; color: var(--text); cursor: pointer; }
+  .cam-picker-roles button.active { background: var(--text); color: var(--window); }
+  .cam-picker-msg { font-size: 17px; color: var(--text-sec); }
+  .cam-picker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+  .cam-card { font: inherit; text-align: left; padding: 0; border: 1px solid var(--line); background: var(--window); cursor: pointer; display: flex; flex-direction: column; color: var(--text); }
+  .cam-card:hover:not(:disabled) { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+  .cam-card.current { border-color: var(--c-done); box-shadow: 0 0 0 2px var(--c-done); }
+  .cam-card:disabled { opacity: 0.5; cursor: not-allowed; }
+  .cam-card img, .cam-noimg { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: var(--chip); }
+  .cam-noimg { display: grid; place-items: center; font-size: 13px; color: var(--text-muted); }
+  .cam-card-meta { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 15px; }
+  .cam-card-meta b { font-size: 20px; }
+  .cam-card-meta span { color: var(--text-muted); }
+  .cam-badge { margin-left: auto; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); color: var(--text-sec) !important; }
+  .cam-badge.on { border-color: var(--c-done); color: var(--c-done) !important; }
 </style>
 </head>
 <body>
@@ -2448,6 +2474,7 @@
           <button type="button" class="mp-btn" data-learn="nut">너트 <b id="lcNut">0</b></button>
           <button type="button" class="mp-btn" id="learnBg" title="부품 없이 빈 화면일 때 누르면, 그 뒤로는 달라진 부분만 부품으로 봐요">빈 화면<small id="bgState" hidden>배경 없음</small></button>
           <button type="button" class="mp-btn" id="roiBtn" title="영상 위에서 로봇 손바닥 자리를 드래그해 지정 — 이 영역에 부품이 닿아야 쥐어요">손 영역</button>
+          <button type="button" class="mp-btn" id="camPickBtn" title="연결된 카메라를 찾아 미리보기로 고르기">카메라 선택</button>
           <button type="button" class="mp-btn" id="learnConfirm" hidden>쥐어줬어요</button>
         </div>
       </div>
@@ -2455,6 +2482,24 @@
     </section>
   </div>
 
+</div>
+
+<!-- Camera selection window -->
+<div class="cam-modal" id="camPicker" role="dialog" aria-modal="true" aria-labelledby="camPickTitle" hidden>
+  <div class="cam-modal-panel">
+    <div class="cam-picker-head">
+      <b id="camPickTitle">어떤 카메라를 쓸까요?</b>
+      <div class="cam-picker-roles" id="camPickRoles" hidden>
+        <button type="button" class="active" data-role="hand">손 카메라</button>
+        <button type="button" data-role="tray">쟁반 카메라</button>
+      </div>
+      <button type="button" class="mp-btn" id="camRescan">다시 찾기</button>
+      <button type="button" class="mp-btn" id="camPickClose">닫기</button>
+    </div>
+    <div class="cam-picker-msg" id="camPickMsg">카메라를 찾는 중…</div>
+    <div class="cam-picker-list" id="camPickList"></div>
+    <div class="cam-picker-names" id="camPickNames"></div>
+  </div>
 </div>
 
 <!-- Emergency stop dialog -->
@@ -3457,6 +3502,109 @@
   document.getElementById('learnConfirm').addEventListener('click', () => postBackendAction('confirm'));
   document.getElementById('learnBg').addEventListener('click', () => postBackendAction('bg'));
 
+  // ---- 카메라 선택: 서버가 0~5번을 열어 미리보기 → 골라서 바로 전환 ----
+  const camPicker = document.getElementById('camPicker');
+  const camPickList = document.getElementById('camPickList');
+  const camPickMsg = document.getElementById('camPickMsg');
+  const camPickRoles = document.getElementById('camPickRoles');
+  let camPickRole = 'hand';
+  let camScanBusy = false;
+  let lastCams = [];
+  const ROLE_KO = { hand: '손', tray: '쟁반' };
+
+  function renderCamList() {
+    camPickList.innerHTML = '';
+    if (!lastCams.length) {
+      camPickMsg.textContent = '연결된 카메라가 없어요 — USB 웹캠을 꽂고 [다시 찾기]를 눌러 주세요';
+      return;
+    }
+    camPickMsg.textContent = `${ROLE_KO[camPickRole]} 카메라로 쓸 카메라를 누르세요 · ${lastCams.length}대 찾음`;
+    for (const c of lastCams) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'cam-card';
+      const mine = c.role === camPickRole;
+      const other = c.role && !mine;
+      btn.classList.toggle('current', mine);
+      btn.disabled = !c.ok || other;
+      const img = c.thumb ? `<img alt="" src="${c.thumb}">` : '<div class="cam-noimg">미리보기 없음</div>';
+      const badge = mine ? '<span class="cam-badge on">사용 중</span>' : other ? `<span class="cam-badge">${ROLE_KO[c.role]} 카메라</span>` : '';
+      btn.innerHTML = `${img}<div class="cam-card-meta"><b>${c.index}번</b><span>${c.width ? `${c.width}×${c.height}` : '-'}</span>${badge}</div>`;
+      btn.addEventListener('click', async () => {
+        camPickMsg.textContent = `${c.index}번으로 바꾸는 중…`;
+        try {
+          const res = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'camera_select', role: camPickRole, index: c.index }) });
+          const data = await res.json();
+          const r = data.result || {};
+          camPickMsg.textContent = r.reply || '';
+          if (r.ok) {
+            lastCams.forEach((x) => { if (x.role === camPickRole) x.role = null; });
+            c.role = camPickRole;
+            renderCamList();
+            camPickMsg.textContent = r.reply;
+            webcamFeed.src = '/api/video?t=' + Date.now();
+            camAutoShown = true;
+            setTimeout(() => { camPicker.hidden = true; }, 900);
+          }
+          applyBackendState(data);
+        } catch (_) {
+          camPickMsg.textContent = '서버에 연결할 수 없어요';
+        }
+      });
+      camPickList.appendChild(btn);
+    }
+  }
+
+  async function scanCameras() {
+    if (camScanBusy) return;
+    camScanBusy = true;
+    camPickMsg.textContent = '카메라를 찾는 중… (몇 초 걸려요)';
+    camPickList.innerHTML = '';
+    try {
+      const res = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'camera_scan' }) });
+      const data = await res.json();
+      lastCams = (data.result && data.result.cameras) || [];
+      const names = (data.result && data.result.names) || [];
+      document.getElementById('camPickNames').textContent = names.length
+        ? `이 컴퓨터에 연결된 카메라: ${names.join(' · ')} — 번호와 이름의 순서는 다를 수 있으니 미리보기로 확인하세요`
+        : '';
+      const roles = data.camera_roles || ['hand'];
+      camPickRoles.hidden = roles.length < 2;
+      renderCamList();
+    } catch (_) {
+      camPickMsg.textContent = '서버에 연결할 수 없어요 (handover_app.py 실행 확인)';
+    }
+    camScanBusy = false;
+  }
+
+  document.getElementById('camPickBtn').addEventListener('click', () => {
+    camPicker.hidden = !camPicker.hidden;
+    if (!camPicker.hidden) scanCameras();
+  });
+  document.getElementById('camPickClose').addEventListener('click', () => { camPicker.hidden = true; });
+  camPicker.addEventListener('click', (ev) => { if (ev.target === camPicker) camPicker.hidden = true; });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !camPicker.hidden) camPicker.hidden = true; });
+  // 처음 실행(카메라를 한 번도 고르지 않음)이거나, 고른 카메라가 15초 넘게 안 잡히면 선택 창을 자동으로 띄움
+  let camAutoShown = false;
+  let camLostSince = null;
+  function maybeAutoPickCamera(snap) {
+    if (camAutoShown || !snap || !snap.camera) return;
+    const ok = snap.camera.running && !snap.camera.error;
+    camLostSince = ok ? null : (camLostSince ?? Date.now());
+    if (snap.camera_chosen === false || (camLostSince && Date.now() - camLostSince > 15000)) {
+      camAutoShown = true;
+      camPicker.hidden = false;
+      scanCameras();
+    }
+  }
+  document.getElementById('camRescan').addEventListener('click', scanCameras);
+  camPickRoles.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
+    camPickRole = b.dataset.role;
+    camPickRoles.querySelectorAll('[data-role]').forEach((x) => x.classList.toggle('active', x === b));
+    renderCamList();
+  }));
+
+
   // ---- 손 영역(손바닥 자리) 지정: 영상 위 드래그 → 실제 영상 좌표(0~1)로 저장 ----
   const camStage = document.getElementById('camDropZone');
   const roiBtn = document.getElementById('roiBtn');
@@ -4111,12 +4259,13 @@
       verdictBar.style.width = '0%';
     }
     document.querySelectorAll('[data-learn], #learnBg, #roiBtn').forEach((b) => { b.disabled = !camOk; });
+    document.getElementById('camStateDesc').textContent = `USB 웹캠(${cam.index ?? 1}번)을 꽂거나 [카메라 선택]에서 다른 카메라를 고르세요`;
     camWasOk = camOk;
     camWinStatus.textContent = `CAM ${cam.index}`;
   }
 
   function applyBackendState(snap) {
-    if (snap && snap.mode === 'handover') { applyHandover(snap); return; }
+    if (snap && snap.mode === 'handover') { applyHandover(snap); maybeAutoPickCamera(snap); return; }
     world.applyBackendSnapshot(snap);
 
     connBadge.innerHTML = `<i class="dot pass"></i>${snap.is_mock ? '모의 로봇 연결' : '로봇 연결됨'}`;
