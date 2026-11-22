@@ -81,6 +81,13 @@ class Runtime2Cam(one.Runtime):
                 self.tray_error = f"쟁반 사진을 읽을 수 없어요: {src}"
             return ("image", img)
         while self.running:
+            if isinstance(src, int) and src in self.cam_disabled:   # 꺼 둔 쟁반 카메라
+                self.tray_error = ""
+                self.tray_frame = None
+                time.sleep(0.3)
+                if self._tray_switch:
+                    return self._open_tray()
+                continue
             cap = cv2.VideoCapture(src)
             if cap.isOpened():
                 self.tray_error = ""
@@ -95,6 +102,8 @@ class Runtime2Cam(one.Runtime):
         kind, src = self._open_tray()
         last_infer, fails = 0.0, 0
         while self.running:
+            if kind == "cap" and isinstance(self.tray_source, int) and self.tray_source in self.cam_disabled:
+                self._tray_switch = True          # 쓰던 쟁반 카메라를 끔 → 닫고 켤 때까지 대기
             if self._tray_switch:                 # 대시보드에서 쟁반 카메라를 바꿈
                 if kind == "cap":
                     src.release()
@@ -203,6 +212,8 @@ class Runtime2Cam(one.Runtime):
                 return {"ok": False, "reply": f"{index}번은 쟁반 카메라로 쓰고 있어요"}
             return super().select_camera(role, index)
         if role == "tray":
+            if index in self.cam_disabled:
+                return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라예요 — 먼저 켜 주세요"}
             if index == self.camera_index:
                 return {"ok": False, "reply": f"{index}번은 손 카메라로 쓰고 있어요"}
             if index == self.tray_source:
@@ -214,10 +225,17 @@ class Runtime2Cam(one.Runtime):
             return {"ok": True, "reply": f"쟁반 카메라를 {index}번으로 바꾸는 중"}
         return {"ok": False, "reply": "알 수 없는 카메라 역할이에요"}
 
+    def set_camera_power(self, index: int, on: bool) -> dict:
+        out = super().set_camera_power(index, on)
+        if on and index == self.tray_source:
+            self._tray_switch = True
+        return out
+
     def state(self) -> dict:
         snap = super().state()
         snap["camera_roles"] = ["hand", "tray"]
         snap["tray_camera"] = {"source": str(self.tray_source), "error": self.tray_error,
+                               "off": isinstance(self.tray_source, int) and self.tray_source in self.cam_disabled,
                                "running": self.tray_frame is not None}
         return snap
 

@@ -2231,10 +2231,16 @@
   .cam-picker-roles button.active { background: var(--text); color: var(--window); }
   .cam-picker-msg { font-size: 17px; color: var(--text-sec); }
   .cam-picker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
-  .cam-card { font: inherit; text-align: left; padding: 0; border: 1px solid var(--line); background: var(--window); cursor: pointer; display: flex; flex-direction: column; color: var(--text); }
-  .cam-card:hover:not(:disabled) { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); }
+  .cam-card { border: 1px solid var(--line); background: var(--window); display: flex; flex-direction: column; color: var(--text); }
   .cam-card.current { border-color: var(--c-done); box-shadow: 0 0 0 2px var(--c-done); }
-  .cam-card:disabled { opacity: 0.5; cursor: not-allowed; }
+  .cam-card.off { background: var(--inset); }
+  .cam-card-pick { font: inherit; text-align: left; padding: 0; border: 0; background: transparent; cursor: pointer; display: flex; flex-direction: column; color: inherit; }
+  .cam-card-pick:hover:not(:disabled) { background: var(--accent-bg); }
+  .cam-card-pick:disabled { cursor: not-allowed; }
+  .cam-card-pick:disabled img { opacity: 0.55; }
+  .cam-card-power { font: inherit; font-size: 15px; height: 40px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer; letter-spacing: 0.08em; }
+  .cam-card-power:hover { background: var(--text); color: var(--window); }
+  .cam-card.off .cam-card-power { color: var(--c-done); font-weight: 600; }
   .cam-card img, .cam-noimg { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; background: var(--chip); }
   .cam-noimg { display: grid; place-items: center; font-size: 13px; color: var(--text-muted); }
   .cam-card-meta { display: flex; align-items: center; gap: 10px; padding: 10px 12px; font-size: 15px; }
@@ -2242,6 +2248,101 @@
   .cam-card-meta span { color: var(--text-muted); }
   .cam-badge { margin-left: auto; font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); color: var(--text-sec) !important; }
   .cam-badge.on { border-color: var(--c-done); color: var(--c-done) !important; }
+
+  .conn-block[data-state="off"] .dot { background: var(--text-muted); }
+  .cam-state.is-off .cam-state-mark { border-color: var(--text-muted); }
+  .cam-state.is-off .cam-state-mark::before, .cam-state.is-off .cam-state-mark::after { background: var(--text-muted); }
+  .cam-state.is-off b { color: var(--text-sec); }
+
+  /* =====================================================================
+     LAYOUT v3 — left: status + robot · right: big camera + request
+     ===================================================================== */
+  .main-split { display: grid; grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr); gap: 10px; min-height: 0; }
+  .col-left, .col-right { display: flex; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; }
+  .col-left > .mp-window, .col-right > #cameraWindow { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .col-left > .status-card, .col-right > .ask-card { flex: none; }
+  .col-left .mp-window > .canvas-wrap, .col-right .cam-stage { flex: 1 1 auto; height: auto !important; min-height: 220px; }
+  .main-split .win-titlebar { flex-wrap: nowrap; }
+  .main-split .win-titlebar .win-status { display: none; }
+
+  /* status card: single column now */
+  .status-card { display: block; }
+  .status-col { border-right: 0; margin-right: 0; }
+  /* request card */
+  .ask-card { display: block; }
+  .ask-card .ask-col { margin-left: 0; }
+  .ask-card .ask-box { padding: 16px var(--pad); grid-template-rows: 24px var(--h-primary) var(--h-secondary) 68px; }
+  .ask-card .vlm-result { height: 68px; }
+
+  /* camera: as large as possible */
+  #cameraWindow .verdict-panel { flex: none; }
+  #cameraWindow .learn-row { flex-wrap: wrap; }
+
+  @media (min-width: 1021px) {
+    .console { grid-template-rows: auto auto minmax(0, 1fr); }
+  }
+  @media (max-width: 1020px) {
+    .main-split { grid-template-columns: 1fr; }
+    .col-left .mp-window > .canvas-wrap { height: 320px !important; flex: none; }
+    .col-right .cam-stage { height: 56vw !important; max-height: 520px; flex: none; }
+  }
+
+  /* ---- bigger camera: tools in title bar, compact request card ---- */
+  #cameraWindow .win-titlebar { height: 56px; min-height: 56px; }
+  #cameraWindow .win-tools { margin-left: auto; padding: 0 10px; }
+  #cameraWindow .win-tools .learn-row { margin: 0; gap: 6px; flex-wrap: nowrap; }
+  #cameraWindow .win-tools .learn-row .mp-btn { height: 38px; font-size: 14px; padding: 0 10px; }
+  #cameraWindow .win-tools .learn-label { font-size: 13px; }
+  #cameraWindow .win-subject { flex: 1 1 0; min-width: 8px; }
+  #cameraWindow .verdict-panel { padding: 8px 14px; }
+  #cameraWindow .verdict-panel .cont-bar { margin-top: 6px; }
+
+  .ask-card .ask-box { grid-template-rows: 24px var(--h-primary) var(--h-secondary); grid-template-areas: "label" "field" "extra"; padding: 14px var(--pad) 16px; }
+  .ask-card .ask-label { grid-area: label; }
+  .ask-card .ask-field { grid-area: field; }
+  .ask-card .ask-examples, .ask-card .vlm-result { grid-area: extra; }
+  .ask-card .vlm-result { height: var(--h-secondary); padding: 0 12px; gap: 10px; cursor: pointer; }
+  .ask-card .vlm-result[hidden] { display: none !important; }
+  .ask-card .vlm-body { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+  .ask-card .vlm-reply { font-size: 17px; flex: none; max-width: 70%; }
+  .ask-card .vlm-cues { font-size: 13px; margin: 0; }
+  .ask-card .ask-box:has(.vlm-result:not([hidden])) .ask-examples { visibility: hidden; }
+
+  .col-left .win-tool-btn { font-size: 13px; padding: 0 9px; height: 34px; white-space: nowrap; }
+  .col-left .win-tools { gap: 4px; padding: 0 6px; }
+  .col-left .win-label { padding-right: 10px; }
+
+  /* left column: title gets the full width, actions sit on the label row */
+  .col-left .status-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: 44px var(--h-primary);
+  }
+  .col-left .status-label { grid-column: 1; grid-row: 1; }
+  .col-left .status-top .status-actions { grid-column: 2; grid-row: 1; }
+  .col-left .status-top .status-now { grid-column: 1 / -1; grid-row: 2; }
+  .col-left .status-actions .side-btn { height: 44px; min-height: 0; font-size: 16px; padding: 0 18px; }
+  .col-left .status-col { grid-template-rows: calc(44px + var(--row-gap) + var(--h-primary)) var(--h-secondary) 64px; }
+  .col-left .status-state { font-size: clamp(28px, 2.4vw, 40px); }
+  body.handover-mode #trailToggleBtn, body.handover-mode [data-cam="top"] { display: none; }
+
+  .col-left .robot-ctrl { flex-wrap: nowrap; padding: 8px 12px; }
+  .col-left .robot-ctrl .mp-btn { height: 36px; font-size: 14px; padding: 0 12px; }
+  .col-left .robot-ctrl .pan-slider input { width: 100px; }
+  .col-left .robot-ctrl .pose-read { display: none; }
+
+  .manual-row { display: flex; align-items: center; gap: 10px; padding-top: 4px; border-top: 1px dashed var(--line); }
+  .manual-row[hidden] { display: none !important; }
+  .manual-label { font-size: 14px; letter-spacing: 0.14em; color: var(--text-muted); flex: none; }
+  .manual-btns { display: flex; gap: 8px; flex-wrap: nowrap; min-width: 0; }
+  .manual-btn { height: 40px; min-height: 0; font-size: 15px; padding: 0 14px; white-space: nowrap; }
+  .manual-btn.pass { border-color: var(--c-done); color: var(--c-done); }
+  .manual-btn.warn { border-color: var(--warning); color: var(--warning); }
+  .manual-btn.pass:hover { background: var(--c-done); color: #fff; }
+  .manual-btn.warn:hover { background: var(--warning); color: #fff; }
+  .manual-empty { font-size: 14px; color: var(--text-muted); }
+  .col-left .status-col { grid-template-rows: calc(44px + var(--row-gap) + var(--h-primary)) var(--h-secondary) 64px 48px; }
+
+  #hiPlace .place-angle span::after { content: ' (정면 90°)'; color: var(--text-muted); }
 </style>
 </head>
 <body>
@@ -2292,95 +2393,78 @@
     <button type="button" class="alarm-ack" id="alarmAck" hidden>확인</button>
   </div>
 
+  <!-- Main: left = status + robot, right = camera (large) + request -->
+  <div class="main-split">
+    <div class="col-left">
   <!-- Status: what is happening now + primary actions -->
-  <section class="status-card">
-    <div class="status-col">
-    <div class="status-top">
-      <div class="status-label">현재 상태</div>
-      <div class="status-now">
-        <span class="status-kicker">지금</span>
-        <b class="status-state" id="nowLabel">대기 중</b>
-      </div>
-      <span class="win-status mono" id="simStateBadge">IDLE</span>
-      <div class="status-actions">
-        <button class="mp-btn side-btn" type="button" onclick="uiCancel()">취소</button>
-        <button class="mp-btn side-btn" type="button" onclick="uiHand()">수령 확인</button>
-      </div>
-    </div>
-      <div class="bar-band">
-        <div class="bar-meta">
-          <span style="display:flex;align-items:center;gap:6px;"><i class="dot pass" id="simDot"></i> <span id="simMsg">대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.</span></span>
-          <span class="mono" id="simTimer">0.0s</span>
+    <section class="status-card">
+      <div class="status-col">
+      <div class="status-top">
+        <div class="status-label">현재 상태</div>
+        <div class="status-now">
+          <span class="status-kicker">지금</span>
+          <b class="status-state" id="nowLabel">대기 중</b>
         </div>
-        <div class="cont-bar"><i id="simBar"></i></div>
+        <span class="win-status mono" id="simStateBadge">IDLE</span>
+        <div class="status-actions">
+          <button class="mp-btn side-btn" type="button" onclick="uiCancel()">취소</button>
+          <button class="mp-btn side-btn" type="button" onclick="uiHand()">수령 확인</button>
+        </div>
       </div>
+        <div class="bar-band">
+          <div class="bar-meta">
+            <span style="display:flex;align-items:center;gap:6px;"><i class="dot pass" id="simDot"></i> <span id="simMsg">대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.</span></span>
+            <span class="mono" id="simTimer">0.0s</span>
+          </div>
+          <div class="cont-bar"><i id="simBar"></i></div>
+        </div>
+  
+        <div class="sm-grid" id="smFlow">
+          <div class="sm-cell active" data-state="IDLE">
+            <div class="sm-code mono">IDLE</div>
+            <div class="sm-name">대기</div>
+            <div class="sm-sub">HOME 자세</div>
+          </div>
+          <div class="sm-cell" data-state="REQUEST">
+            <div class="sm-code mono">REQUEST</div>
+            <div class="sm-name">요청</div>
+            <div class="sm-sub">1.0초 유지</div>
+          </div>
+          <div class="sm-cell" data-state="CONFIRM">
+            <div class="sm-code mono">CONFIRM</div>
+            <div class="sm-name">확인</div>
+            <div class="sm-sub">SHOW,N · 2초</div>
+          </div>
+          <div class="sm-cell" data-state="PICK">
+            <div class="sm-code mono">PICK</div>
+            <div class="sm-name">집기</div>
+            <div class="sm-sub">PICK,N</div>
+          </div>
+          <div class="sm-cell" data-state="DELIVER">
+            <div class="sm-code mono">DELIVER</div>
+            <div class="sm-name">전달</div>
+            <div class="sm-sub">RELEASE</div>
+          </div>
+          <div class="sm-cell" data-state="HANDOVER">
+            <div class="sm-code mono">HANDOVER</div>
+            <div class="sm-name">수령</div>
+            <div class="sm-sub">EVT,HAND</div>
+          </div>
+          <div class="sm-cell" data-state="RETURN">
+            <div class="sm-code mono">RETURN</div>
+            <div class="sm-name">반납</div>
+            <div class="sm-sub">RETURN,N</div>
+          </div>
+        </div>
+        <div class="manual-row" id="manualRow" hidden>
+          <span class="manual-label">수동</span>
+          <div class="manual-btns" id="manualBtns"></div>
+        </div>
+  
+  
+      </div>
+    </section>
 
-      <div class="sm-grid" id="smFlow">
-        <div class="sm-cell active" data-state="IDLE">
-          <div class="sm-code mono">IDLE</div>
-          <div class="sm-name">대기</div>
-          <div class="sm-sub">HOME 자세</div>
-        </div>
-        <div class="sm-cell" data-state="REQUEST">
-          <div class="sm-code mono">REQUEST</div>
-          <div class="sm-name">요청</div>
-          <div class="sm-sub">1.0초 유지</div>
-        </div>
-        <div class="sm-cell" data-state="CONFIRM">
-          <div class="sm-code mono">CONFIRM</div>
-          <div class="sm-name">확인</div>
-          <div class="sm-sub">SHOW,N · 2초</div>
-        </div>
-        <div class="sm-cell" data-state="PICK">
-          <div class="sm-code mono">PICK</div>
-          <div class="sm-name">집기</div>
-          <div class="sm-sub">PICK,N</div>
-        </div>
-        <div class="sm-cell" data-state="DELIVER">
-          <div class="sm-code mono">DELIVER</div>
-          <div class="sm-name">전달</div>
-          <div class="sm-sub">RELEASE</div>
-        </div>
-        <div class="sm-cell" data-state="HANDOVER">
-          <div class="sm-code mono">HANDOVER</div>
-          <div class="sm-name">수령</div>
-          <div class="sm-sub">EVT,HAND</div>
-        </div>
-        <div class="sm-cell" data-state="RETURN">
-          <div class="sm-code mono">RETURN</div>
-          <div class="sm-name">반납</div>
-          <div class="sm-sub">RETURN,N</div>
-        </div>
-      </div>
-
-
-    </div>
-    <div class="ask-col">
-    <form class="ask-box" id="askForm" autocomplete="off">
-      <label class="ask-label" for="askInput">무엇을 가져올까요?</label>
-      <div class="ask-field">
-        <input id="askInput" type="text" maxlength="120" placeholder="예: 파란색 육각 캡 주세요" enterkeyhint="send">
-        <button type="submit" class="ask-send" id="askSend">가져오기</button>
-      </div>
-      <div class="ask-examples" aria-label="예시 요청">
-        <button type="button" data-ask="파란 캡 하나 줘">파란 캡 하나 줘</button>
-        <button type="button" data-ask="초록색 잠금 캡">초록색 잠금 캡</button>
-        <button type="button" data-ask="파란 거 말고 아무거나">파란 거 말고 아무거나</button>
-      </div>
-      <div class="vlm-result" id="vlmResult" aria-live="polite" hidden>
-        <span class="vlm-tag mono">VLM</span>
-        <div class="vlm-body">
-          <div class="vlm-reply"><i class="vlm-swatch" aria-hidden="true"></i><span id="vlmReply">요청을 입력하면 VLM 분석 결과가 여기에 나와요</span></div>
-          <div class="vlm-cues" id="vlmCues">예: "파란 캡 하나 줘" → 2번 캡 B</div>
-        </div>
-      </div>
-    </form>
-    </div>
-  </section>
-
-
-  <!-- Hero 2-Column Workspace: 3D Wireframe Robotic Hand + Simulated Vision Camera -->
-  <div class="hero-grid">
     <!-- LEFT HERO: 3D Wireframe Robotic Hand & Ball Trajectory -->
     <section class="mp-window">
       <div class="win-titlebar">
@@ -2421,6 +2505,8 @@
 
     </section>
 
+    </div>
+    <div class="col-right">
     <!-- RIGHT HERO: Virtual AI Vision Camera (Bounding Boxes + Proximity Grasp) / Live Webcam -->
     <section class="mp-window" id="cameraWindow">
       <div class="win-titlebar">
@@ -2475,11 +2561,36 @@
           <button type="button" class="mp-btn" id="learnBg" title="부품 없이 빈 화면일 때 누르면, 그 뒤로는 달라진 부분만 부품으로 봐요">빈 화면<small id="bgState" hidden>배경 없음</small></button>
           <button type="button" class="mp-btn" id="roiBtn" title="영상 위에서 로봇 손바닥 자리를 드래그해 지정 — 이 영역에 부품이 닿아야 쥐어요">손 영역</button>
           <button type="button" class="mp-btn" id="camPickBtn" title="연결된 카메라를 찾아 미리보기로 고르기">카메라 선택</button>
+          <button type="button" class="mp-btn" id="camPowerBtn" title="지금 쓰는 카메라 끄기/켜기 (저장됨)">카메라 끄기</button>
           <button type="button" class="mp-btn" id="learnConfirm" hidden>쥐어줬어요</button>
         </div>
       </div>
 
     </section>
+      <section class="status-card ask-card">
+    <div class="ask-col">
+    <form class="ask-box" id="askForm" autocomplete="off">
+      <label class="ask-label" for="askInput">무엇을 가져올까요?</label>
+      <div class="ask-field">
+        <input id="askInput" type="text" maxlength="120" placeholder="예: 파란색 육각 캡 주세요" enterkeyhint="send">
+        <button type="submit" class="ask-send" id="askSend">가져오기</button>
+      </div>
+      <div class="ask-examples" aria-label="예시 요청">
+        <button type="button" data-ask="파란 캡 하나 줘">파란 캡 하나 줘</button>
+        <button type="button" data-ask="초록색 잠금 캡">초록색 잠금 캡</button>
+        <button type="button" data-ask="파란 거 말고 아무거나">파란 거 말고 아무거나</button>
+      </div>
+      <div class="vlm-result" id="vlmResult" aria-live="polite" hidden>
+        <span class="vlm-tag mono">VLM</span>
+        <div class="vlm-body">
+          <div class="vlm-reply"><i class="vlm-swatch" aria-hidden="true"></i><span id="vlmReply">요청을 입력하면 VLM 분석 결과가 여기에 나와요</span></div>
+          <div class="vlm-cues" id="vlmCues">예: "파란 캡 하나 줘" → 2번 캡 B</div>
+        </div>
+      </div>
+    </form>
+    </div>
+      </section>
+    </div>
   </div>
 
 </div>
@@ -2696,7 +2807,7 @@
           <div><dt>인식기</dt><dd id="hiDet">-</dd></div>
           <div><dt>손 영역</dt><dd id="hiRoi">-</dd></div>
           <div><dt>내려놓기 각도</dt><dd id="hiPlace">-</dd></div>
-          <div><dt>동작 값</dt><dd>쥐기 엄지 130° · 손가락 50° · 1.5초 / 펴기 0.7초 / 손목 회전 1.5초 (팀 보정값)</dd></div>
+          <div><dt>동작 값</dt><dd>쥐기 엄지 130° · 손가락 50° · 1.5초 / 펴기 0.7초 / 손목 회전 1.5초 · 내려놓기 각도는 아래에서 설정</dd></div>
         </dl>
         <div class="ctrl-strip">
           <button class="mp-btn" type="button" data-ho-action="roi_reset">손 영역 기본값</button>
@@ -3335,6 +3446,7 @@
     }
   }
 
+  vlmResult.addEventListener('click', () => { if (handoverMode) vlmResult.hidden = true; });
   askForm.addEventListener('submit', (ev) => {
     ev.preventDefault();
     submitAsk(askInput.value);
@@ -3520,17 +3632,23 @@
     }
     camPickMsg.textContent = `${ROLE_KO[camPickRole]} 카메라로 쓸 카메라를 누르세요 · ${lastCams.length}대 찾음`;
     for (const c of lastCams) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'cam-card';
+      const card = document.createElement('div');
+      card.className = 'cam-card';
       const mine = c.role === camPickRole;
       const other = c.role && !mine;
-      btn.classList.toggle('current', mine);
-      btn.disabled = !c.ok || other;
-      const img = c.thumb ? `<img alt="" src="${c.thumb}">` : '<div class="cam-noimg">미리보기 없음</div>';
-      const badge = mine ? '<span class="cam-badge on">사용 중</span>' : other ? `<span class="cam-badge">${ROLE_KO[c.role]} 카메라</span>` : '';
-      btn.innerHTML = `${img}<div class="cam-card-meta"><b>${c.index}번</b><span>${c.width ? `${c.width}×${c.height}` : '-'}</span>${badge}</div>`;
-      btn.addEventListener('click', async () => {
+      card.classList.toggle('current', mine && !c.off);
+      card.classList.toggle('off', Boolean(c.off));
+      const img = c.off
+        ? '<div class="cam-noimg">꺼짐 · 열지 않아요</div>'
+        : (c.thumb ? `<img alt="" src="${c.thumb}">` : '<div class="cam-noimg">미리보기 없음</div>');
+      const badge = c.off ? '<span class="cam-badge">꺼짐</span>'
+        : mine ? '<span class="cam-badge on">사용 중</span>'
+        : other ? `<span class="cam-badge">${ROLE_KO[c.role]} 카메라</span>` : '';
+      card.innerHTML = `<button type="button" class="cam-card-pick">${img}<div class="cam-card-meta"><b>${c.index}번</b><span>${c.width ? `${c.width}×${c.height}` : ''}</span>${badge}</div></button>`
+        + `<button type="button" class="cam-card-power">${c.off ? '켜기' : '끄기'}</button>`;
+      const pick = card.querySelector('.cam-card-pick');
+      pick.disabled = c.off || !c.ok || other;
+      pick.addEventListener('click', async () => {
         camPickMsg.textContent = `${c.index}번으로 바꾸는 중…`;
         try {
           const res = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'camera_select', role: camPickRole, index: c.index }) });
@@ -3551,7 +3669,26 @@
           camPickMsg.textContent = '서버에 연결할 수 없어요';
         }
       });
-      camPickList.appendChild(btn);
+      card.querySelector('.cam-card-power').addEventListener('click', async () => {
+        const turnOn = Boolean(c.off);
+        camPickMsg.textContent = `${c.index}번 카메라를 ${turnOn ? '켜는' : '끄는'} 중…`;
+        try {
+          const res = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'camera_power', index: c.index, on: turnOn }) });
+          const data = await res.json();
+          applyBackendState(data);
+          if (turnOn) {
+            scanCameras();                         // 켠 카메라의 미리보기를 다시 받아 옴
+          } else {
+            c.off = true;
+            delete c.thumb;
+            renderCamList();
+            camPickMsg.textContent = (data.result && data.result.reply) || '';
+          }
+        } catch (_) {
+          camPickMsg.textContent = '서버에 연결할 수 없어요';
+        }
+      });
+      camPickList.appendChild(card);
     }
   }
 
@@ -3582,6 +3719,12 @@
     if (!camPicker.hidden) scanCameras();
   });
   document.getElementById('camPickClose').addEventListener('click', () => { camPicker.hidden = true; });
+  let camPowerIndex = null;
+  let camPowerOn = true;
+  document.getElementById('camPowerBtn').addEventListener('click', () => {
+    if (camPowerIndex == null) return;
+    postBackendAction('camera_power', null, { index: camPowerIndex, on: !camPowerOn });
+  });
   camPicker.addEventListener('click', (ev) => { if (ev.target === camPicker) camPicker.hidden = true; });
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !camPicker.hidden) camPicker.hidden = true; });
   // 처음 실행(카메라를 한 번도 고르지 않음)이거나, 고른 카메라가 15초 넘게 안 잡히면 선택 창을 자동으로 띄움
@@ -3589,7 +3732,7 @@
   let camLostSince = null;
   function maybeAutoPickCamera(snap) {
     if (camAutoShown || !snap || !snap.camera) return;
-    const ok = snap.camera.running && !snap.camera.error;
+    const ok = (snap.camera.running && !snap.camera.error) || snap.camera.off;
     camLostSince = ok ? null : (camLostSince ?? Date.now());
     if (snap.camera_chosen === false || (camLostSince && Date.now() - camLostSince > 15000)) {
       camAutoShown = true;
@@ -3663,6 +3806,35 @@
   panSlider.addEventListener('change', () => { panDragging = false; postBackendAction('raw', null, { cmd: `PAN,${panSlider.value}` }); });
   document.getElementById('placeAngle').addEventListener('change', (ev) => postBackendAction('place_angle', null, { value: ev.target.value }));
   document.querySelectorAll('[data-ho-action]').forEach((b) => b.addEventListener('click', () => postBackendAction(b.dataset.hoAction)));
+
+
+  // ---- 수동 진행 버튼: 단계마다 사람이 대신 넘길 수 있게 ----
+  let manualSig = '';
+  function renderManual(snap) {
+    const row = document.getElementById('manualRow');
+    const box = document.getElementById('manualBtns');
+    row.hidden = false;
+    const opts = snap.manual || [];
+    const sig = opts.map((o) => o.key + o.label).join('|') + (snap.stopped ? 'S' : '');
+    if (sig === manualSig) return;
+    manualSig = sig;
+    box.innerHTML = '';
+    if (!opts.length) {
+      const sp = document.createElement('span');
+      sp.className = 'manual-empty';
+      sp.textContent = snap.stopped ? '비상 정지 중 — 대기 복귀 후 사용' : '-';
+      box.appendChild(sp);
+      return;
+    }
+    for (const o of opts) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = `mp-btn manual-btn ${o.tone || ''}`;
+      b.textContent = o.label;
+      b.addEventListener('click', () => postBackendAction('manual', null, { step: o.key }));
+      box.appendChild(b);
+    }
+  }
 
   // Space = emergency stop (except while typing in a form field)
   document.addEventListener('keydown', (ev) => {
@@ -4063,7 +4235,12 @@
     handoverMode = true;
     document.body.classList.add('handover-mode');
     document.getElementById('learnRow').hidden = false;
+    const camTools = document.querySelector('#cameraWindow .win-tools');
+    if (camTools) camTools.appendChild(document.getElementById('learnRow'));   // 버튼을 제목줄로 → 영상 칸을 더 크게
     document.getElementById('robotCtrl').hidden = false;
+    const hiPlace = document.getElementById('hiPlace');
+    const paLabel = document.querySelector('#robotCtrl .place-angle');
+    if (hiPlace && paLabel) { hiPlace.textContent = ''; hiPlace.appendChild(paLabel); }   // 각도 입력은 설정 탭으로
     const ex = [['볼트 줘', '볼트 줘'], ['너트 하나 받아', '너트 하나 받아'], ['볼트 말고 너트', '볼트 말고 너트']];
     document.querySelectorAll('[data-ask]').forEach((b, i) => { if (ex[i]) { b.dataset.ask = ex[i][0]; b.textContent = ex[i][1]; } });
     document.getElementById('askInput').placeholder = '예: 볼트 줘 / 너트';
@@ -4129,8 +4306,8 @@
     const cam = snap.camera || {};
     const camBlock = document.getElementById('camBlock');
     camBlock.hidden = false;
-    camBlock.dataset.state = cam.running && !cam.error ? 'ok' : 'bad';
-    document.getElementById('camBadge').innerHTML = `<i class="dot"></i>${cam.running && !cam.error ? `USB · ${Math.round(cam.fps || 0)}fps` : '연결 끊김'}`;
+    camBlock.dataset.state = cam.off ? 'off' : (cam.running && !cam.error ? 'ok' : 'bad');
+    document.getElementById('camBadge').innerHTML = `<i class="dot"></i>${cam.off ? '꺼짐' : (cam.running && !cam.error ? `USB · ${Math.round(cam.fps || 0)}fps` : '연결 끊김')}`;
     camBlock.title = cam.error || `카메라 ${cam.index}번`;
     const robotOk = rb.status === 'connected' || rb.status === 'no_response';
     document.body.classList.toggle('robot-offline', !robotOk);
@@ -4174,6 +4351,7 @@
     }[snap.state] || snap.state;
     nowLabel.textContent = now;
     nowLabel.classList.toggle('warn', snap.tone === 'warn');
+    renderManual(snap);
     world.statusOverride = now;
     world.statusTone = snap.stopped || snap.tone === 'warn' ? 'warn'
       : snap.state === 'PLACE' || snap.state === 'HOME' ? 'pass'
@@ -4217,7 +4395,7 @@
     document.getElementById('hiCam').textContent = camI.running ? `USB ${camI.index}번 · ${Math.round(camI.fps || 0)}fps · 추론 ${camI.infer_ms || 0}ms` : (camI.error || '연결 끊김');
     document.getElementById('hiDet').textContent = snap.detector ? snap.detector.name : '-';
     document.getElementById('hiRoi').textContent = snap.palm_roi ? snap.palm_roi.map((v) => v.toFixed(2)).join(', ') : '-';
-    document.getElementById('hiPlace').textContent = snap.place_angle != null ? `${snap.place_angle}° (정면 90°)` : '-';
+
     // camera verdict
     const seen = snap.seen;
     const cam = snap.camera || {};
@@ -4241,8 +4419,15 @@
     }
     verdictDist.textContent = `${cam.fps || 0} FPS${cam.infer_ms ? ` · 추론 ${cam.infer_ms}ms` : ''}`;
     // 카메라 연결 상태만 크게: 끊기면 영상 대신 상태 표시, 작동 중이면 작은 배지
-    const camOk = cam.running && !cam.error;
+    const camOff = Boolean(cam.off);
+    const camOk = cam.running && !cam.error && !camOff;
+    camPowerIndex = cam.index;
+    camPowerOn = !camOff;
+    const pbtn = document.getElementById('camPowerBtn');
+    pbtn.textContent = camOff ? '카메라 켜기' : '카메라 끄기';
+    pbtn.classList.toggle('active', camOff);
     const camState = document.getElementById('camState');
+    camState.classList.toggle('is-off', camOff);
     camState.hidden = camOk;
     document.getElementById('camLive').hidden = !camOk;
     if (camOk) {
@@ -4251,15 +4436,16 @@
       webcamFeed.style.display = 'block';
     } else {
       webcamFeed.style.display = 'none';
-      document.getElementById('camStateTitle').textContent = '카메라 연결 끊김';
-      document.getElementById('camStateDesc').textContent = `USB 웹캠(${cam.index ?? 1}번)을 꽂으면 자동으로 다시 연결돼요`;
-      verdictBadge.textContent = '카메라 끊김';
+      document.getElementById('camStateTitle').textContent = camOff ? '카메라 꺼짐' : '카메라 연결 끊김';
+      verdictBadge.textContent = camOff ? '카메라 꺼짐' : '카메라 끊김';
       verdictBadge.className = 'verdict-badge fail mono';
       verdictReason.textContent = '인식할 수 없어요 — 받기 단계에서는 부품을 올린 뒤 [쥐어줬어요]를 누르면 쥐어요';
       verdictBar.style.width = '0%';
     }
     document.querySelectorAll('[data-learn], #learnBg, #roiBtn').forEach((b) => { b.disabled = !camOk; });
-    document.getElementById('camStateDesc').textContent = `USB 웹캠(${cam.index ?? 1}번)을 꽂거나 [카메라 선택]에서 다른 카메라를 고르세요`;
+    document.getElementById('camStateDesc').textContent = camOff
+      ? `${cam.index}번 카메라를 꺼 두었어요 — [카메라 켜기] 또는 [카메라 선택]에서 다른 카메라를 고르세요`
+      : `USB 웹캠(${cam.index ?? 1}번)을 꽂거나 [카메라 선택]에서 다른 카메라를 고르세요`;
     camWasOk = camOk;
     camWinStatus.textContent = `CAM ${cam.index}`;
   }

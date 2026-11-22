@@ -44,6 +44,7 @@ def make_runtime(tmp):
     rt.task = FakeTask()
     rt.camera_index = 1
     rt._cam_switch = False
+    rt.cam_disabled = set()
     rt.frame = np.zeros((480, 640, 3), np.uint8)    # 1번(지금 쓰는 카메라)의 최근 프레임
     return rt
 
@@ -104,6 +105,7 @@ class TwoCameraSelectTests(unittest.TestCase):
         rt = two.Runtime2Cam.__new__(two.Runtime2Cam)
         rt.task = FakeTask()
         rt.camera_index, rt._cam_switch = 1, False
+        rt.cam_disabled = set()
         rt.tray_source, rt._tray_switch = 2, False
         rt.frame = np.zeros((480, 640, 3), np.uint8)
         rt.tray_frame = np.zeros((480, 640, 3), np.uint8)
@@ -123,3 +125,74 @@ class TwoCameraSelectTests(unittest.TestCase):
         self.assertEqual(self.rt.tray_source, 3)
         self.assertTrue(self.rt._tray_switch)
         self.assertEqual(app.Runtime.read_settings()["tray_camera"], 3)
+
+
+class CameraPowerTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.patch_file = mock.patch.object(app.Runtime, "SETTINGS_FILE", Path(self.tmp.name) / "s.json")
+        self.patch_file.start()
+        self.opened = []
+
+        class Spy(FakeCap):
+            def __init__(cap, idx):
+                self.opened.append(idx)
+                super().__init__(idx)
+        self.patch_cap = mock.patch.object(app.cv2, "VideoCapture", Spy)
+        self.patch_cap.start()
+        self.patch_sleep = mock.patch.object(app.time, "sleep", lambda s: None)
+        self.patch_sleep.start()
+        self.rt = make_runtime(self.tmp.name)
+        self.rt.cam_disabled = set()
+
+    def tearDown(self):
+        self.patch_sleep.stop()
+        self.patch_cap.stop()
+        self.patch_file.stop()
+        self.tmp.cleanup()
+
+    def test_off_camera_is_never_opened_by_scan(self):
+        self.rt.set_camera_power(0, False)
+        cams = self.rt.scan_cameras()
+        self.assertNotIn(0, self.opened)                          # 내장 카메라 불이 켜지지 않음
+        self.assertTrue(next(c for c in cams if c["index"] == 0)["off"])
+        self.assertEqual(app.Runtime.read_settings()["camera_disabled"], [0])
+
+    def test_turning_off_current_camera_and_back_on(self):
+        self.rt.set_camera_power(1, False)
+        self.assertTrue(self.rt.camera_off())
+        self.rt.set_camera_power(1, True)
+        self.assertFalse(self.rt.camera_off())
+        self.assertTrue(self.rt._cam_switch)                      # 카메라 루프가 다시 엶
+
+    def test_cannot_select_off_camera(self):
+        self.rt.set_camera_power(2, False)
+        self.assertFalse(self.rt.select_camera("hand", 2)["ok"])
+
+
+class CameraWatchdogTests(unittest.TestCase):
+    def test_stalled_camera_is_reopened_in_new_thread(self):
+        rt = make_runtime(None)
+        rt.running = True
+        rt.jpeg, rt.fps, rt.cam_error = b"x", 25.0, ""
+        rt._cam_gen, rt._last_frame_t = 0, 0.0
+        rt._cam_opened_t = app.time.monotonic() - 10       # 10초 전에 열렸는데 영상이 한 장도 없음
+        started = []
+        with mock.patch.object(app.threading, "Thread", lambda target, args, daemon: mock.Mock(start=lambda: started.append(args))):
+            rt._camera_watchdog()
+        self.assertEqual(rt._cam_gen, 1)
+        self.assertEqual(started, [(1,)])
+        self.assertIsNone(rt.jpeg)
+        self.assertIn("영상을 보내지 않아", rt.cam_error)
+
+    def test_healthy_or_off_camera_is_left_alone(self):
+        rt = make_runtime(None)
+        rt._cam_gen = 0
+        rt._cam_opened_t = app.time.monotonic() - 10
+        rt._last_frame_t = app.time.monotonic()            # 방금 프레임이 옴
+        rt._camera_watchdog()
+        self.assertEqual(rt._cam_gen, 0)
+        rt._last_frame_t = 0.0
+        rt.cam_disabled = {1}                               # 꺼 둔 카메라는 감시하지 않음
+        rt._camera_watchdog()
+        self.assertEqual(rt._cam_gen, 0)

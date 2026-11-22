@@ -26,7 +26,7 @@ GRIP_S = 1.58    # 쥐기 1500ms
 NG_SEG_S = 0.34  # NG 흔들기 한 구간 260ms
 OPEN_GRIP = 0.1
 CLOSED_GRIP = 0.92
-PLACE_ANGLE = 110
+PLACE_ANGLE = 180      # 손목 내려놓기 각도: 서보 최대치 (팀 보정값 110°에서 변경)
 
 
 def _ease(a: float, b: float, t: float) -> float:
@@ -513,6 +513,84 @@ class HandoverTask:
             self._enter("IDLE", IDLE_MSG, "pass")
             self.target = None
 
+    # ---- 수동 진행: 인식·응답이 실패해도 사람이 단계를 넘길 수 있게 ----
+    def manual_options(self) -> list[dict]:
+        """지금 상태에서 누를 수 있는 수동 버튼 [{key, label, tone}]"""
+        if self.stopped:
+            return []
+        t = LABEL_KO.get(self.target or "", "부품")
+        st = self.state
+        if st == "IDLE":
+            return [{"key": "req_bolt", "label": "볼트 요청"}, {"key": "req_nut", "label": "너트 요청"}]
+        if st == "REQUEST":
+            return [{"key": "skip_open", "label": "손 폈음 → 받기"}]
+        if st == "RECEIVE":
+            return [{"key": "grip", "label": f"{t} 맞음 → 쥐기", "tone": "pass"},
+                    {"key": "ng", "label": "다른 부품 → NG", "tone": "warn"}]
+        if st == "VERIFY":
+            return [{"key": "grip", "label": f"{t} 맞음 → 쥐기", "tone": "pass"},
+                    {"key": "receive", "label": "다시 받기"}]
+        if st == "GRIP":
+            return [{"key": "place", "label": "쥐었음 → 내려놓기", "tone": "pass"},
+                    {"key": "regrip", "label": "다시 쥐기"}]
+        if st == "PLACE":
+            return [{"key": "placed", "label": "내려놓았음 → 확인"},
+                    {"key": "replace", "label": "다시 내려놓기"}]
+        if st == "HOME":
+            if self.target:
+                return [{"key": "done", "label": "손 비었음 → 완료", "tone": "pass"},
+                        {"key": "fail", "label": "손에 남음 → 실패", "tone": "warn"}]
+            return [{"key": "idle", "label": "복귀 완료 → 대기"}]
+        return []
+
+    def manual(self, key: str) -> dict:
+        allowed = {o["key"] for o in self.manual_options()}
+        if key not in allowed:
+            return {"ok": False, "reply": "지금 단계에서는 쓸 수 없는 버튼이에요"}
+        t = LABEL_KO.get(self.target or "", "부품")
+        self._log("SYS", f"[수동] {next(o['label'] for o in self.manual_options() if o['key'] == key)}")
+        if key in ("req_bolt", "req_nut"):          # 새 요청은 로봇이 움직이는 중이면 거절 (request 가 확인)
+            return self.request("볼트" if key == "req_bolt" else "너트")
+        self._awaiting = None                       # 기다리던 응답은 사람이 대신 확인
+        if key == "skip_open":
+            self._point_reset()
+            self._enter_receive()
+        elif key == "grip":
+            self._vlm_job, self._vlm_hold = None, False
+            self._rearm_wait = False
+            self._reset_detection()
+            self._enter("GRIP", f"작업자 확인 — {t} 쥐는 중", "pass")
+            self._send("GRIP")
+        elif key == "ng":
+            self.reject_count += 1
+            self._reset_detection()
+            self._enter("VERIFY", f"작업자 판정: 다른 부품 — {t}을(를) 주세요", "warn")
+            self._send("NG")
+        elif key == "receive":
+            self._vlm_job, self._vlm_hold = None, False
+            self._rearm_wait = False
+            self._reset_detection()
+            self._enter_receive()
+        elif key == "place":
+            self._enter("PLACE", f"손목을 {self.place_angle}°로 돌려 내려놓는 중", "pass")
+            self._send(f"PLACE,{self.place_angle}")
+        elif key == "regrip":
+            self._send("GRIP")
+        elif key == "placed":
+            self._check_seen = 0
+            self._check_total = 0
+            self._enter("HOME", "내려놓기 완료 — 손이 비었는지 확인 중", "pass")
+        elif key == "replace":
+            self._send(f"PLACE,{self.place_angle}")
+        elif key == "done":
+            self._finish(True, "(작업자 확인)")
+        elif key == "fail":
+            self._finish(False, "작업자 확인: 손에 남음")
+        elif key == "idle":
+            self._enter("IDLE", IDLE_MSG, "pass")
+            self.target = None
+        return {"ok": True, "reply": "수동으로 진행했어요"}
+
     def stats(self) -> dict:
         finished = self.done_count + self.fail_count
         return {
@@ -547,6 +625,7 @@ class HandoverTask:
             "vlm_state": "checking" if self._vlm_job is not None else ("hold" if self._vlm_hold else ""),
             "point": {"phase": self._point_phase, "angle": self._point_angle} if self.point_cfg else None,
             "tray": {"items": [{k: v for k, v in d.items()} for d in self.tray["items"]], "pick": self.tray["pick"]},
+            "manual": self.manual_options(),
             "stats": self.stats(),
             "done": self.done_count,
             "rejected": self.reject_count,

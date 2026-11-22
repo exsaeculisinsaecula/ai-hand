@@ -347,6 +347,7 @@ class Runtime:
             vlm.warmup()
         self.camera_index = camera_index
         self._cam_switch = False
+        self.cam_disabled: set[int] = set(int(i) for i in self.read_settings().get("camera_disabled", []))
         self.lock = threading.Lock()
         self.frame = None
         self.frame_id = 0
@@ -361,7 +362,10 @@ class Runtime:
         self.recv_bg = None
         self.manual_bg = None
         self.running = True
-        threading.Thread(target=self._camera_loop, daemon=True).start()
+        self._cam_gen = 0                 # 카메라 스레드 세대: 멈춘 스레드를 버리고 새로 시작할 때 증가
+        self._cam_opened_t = 0.0
+        self._last_frame_t = 0.0
+        threading.Thread(target=self._camera_loop, args=(0,), daemon=True).start()
         threading.Thread(target=self._infer_loop, daemon=True).start()
         threading.Thread(target=self._task_loop, daemon=True).start()
 
@@ -455,12 +459,25 @@ class Runtime:
         return vis
 
     # ---- camera: capture + stream only ----
+    def camera_off(self) -> bool:
+        """지금 고른 카메라가 꺼짐 목록에 있으면 열지 않는다."""
+        return self.camera_index in self.cam_disabled
+
     def _open_camera(self):
         self._cam_switch = False
         while self.running:
+            if self.camera_off():                   # 꺼 둔 카메라: 열지 않고 켤 때까지 대기
+                self.cam_error = ""
+                self.jpeg = None
+                self.fps = 0.0
+                time.sleep(0.3)
+                if self._cam_switch:
+                    self._cam_switch = False
+                continue
             cap = cv2.VideoCapture(self.camera_index)
             if cap.isOpened():
                 self.cam_error = ""
+                self._cam_opened_t = time.monotonic()
                 self.task._log("SYS", f"USB 웹캠({self.camera_index}번) 연결됨")
                 return cap
             cap.release()
@@ -469,12 +486,15 @@ class Runtime:
             time.sleep(2.0)
         return None
 
-    def _camera_loop(self) -> None:
+    def _camera_loop(self, gen: int = 0) -> None:
         cap = self._open_camera()
         fails = 0
         last = time.perf_counter()
         while self.running and cap is not None:
-            if self._cam_switch:                    # 대시보드에서 다른 카메라를 고름
+            if gen != self._cam_gen:                # 감시 장치가 새 스레드를 띄움 → 이 스레드는 정리하고 끝냄
+                cap.release()
+                return
+            if self._cam_switch or self.camera_off():   # 다른 카메라를 고름 / 이 카메라를 끔
                 cap.release()
                 self.jpeg = None
                 self.fps = 0.0
@@ -482,6 +502,9 @@ class Runtime:
                 fails = 0
                 continue
             ok, frame = cap.read()
+            if gen != self._cam_gen:
+                cap.release()
+                return
             if not ok:
                 fails += 1
                 if fails > 40:                      # 약 2초 동안 프레임 없음 = 분리
@@ -493,6 +516,7 @@ class Runtime:
                 time.sleep(0.05)
                 continue
             fails = 0
+            self._last_frame_t = time.monotonic()
             with self.lock:
                 self.frame = frame
                 self.frame_id += 1
@@ -593,7 +617,25 @@ class Runtime:
                     self.task.link_lost()
                 was_connected = now_connected
                 self.task.step(res)
+            self._camera_watchdog()
             time.sleep(0.05)
+
+    STALL_S = 5.0
+
+    def _camera_watchdog(self) -> None:
+        """카메라가 열렸는데 영상이 5초 넘게 안 오면 (읽기가 멈춤) 새 스레드로 다시 연다."""
+        if self.camera_off() or not self._cam_opened_t:
+            return
+        since = time.monotonic() - max(self._cam_opened_t, self._last_frame_t)
+        if since < self.STALL_S:
+            return
+        self._cam_gen += 1
+        self._cam_opened_t = 0.0
+        self.jpeg = None
+        self.fps = 0.0
+        self.cam_error = f"카메라 {self.camera_index}번이 영상을 보내지 않아 다시 여는 중이에요 (USB 연결 · 허브 전원 확인)"
+        self.task._log("ERR", f"카메라 {self.camera_index}번 영상 멈춤 {since:.0f}초 — 다시 엶")
+        threading.Thread(target=self._camera_loop, args=(self._cam_gen,), daemon=True).start()
 
     def on_robot_connect(self) -> None:
         with self.lock:
@@ -646,6 +688,10 @@ class Runtime:
         out = []
         misses = 0
         for idx in range(self.MAX_CAMERAS):
+            if idx in self.cam_disabled:            # 꺼 둔 카메라는 열지 않음 (불도 안 켜짐)
+                out.append({"index": idx, "ok": False, "off": True, "role": in_use.get(idx)})
+                misses = 0
+                continue
             if idx in in_use:
                 fr = self._frame_for_role(in_use[idx])
                 item = {"index": idx, "ok": fr is not None, "role": in_use[idx]}
@@ -675,9 +721,24 @@ class Runtime:
         self.task._log("SYS", f"카메라 찾기: {found}")
         return out
 
+    def set_camera_power(self, index: int, on: bool) -> dict:
+        """카메라 켜기/끄기 (번호별, 저장됨). 끈 카메라는 찾기·선택 때도 열지 않는다."""
+        if on:
+            self.cam_disabled.discard(index)
+            self._cam_switch = True                 # 쓰는 카메라였다면 다시 엶
+            msg = f"{index}번 카메라를 켰어요"
+        else:
+            self.cam_disabled.add(index)
+            msg = f"{index}번 카메라를 껐어요"
+        self._save_settings(camera_disabled=sorted(self.cam_disabled))
+        self.task._log("SYS", msg)
+        return {"ok": True, "reply": msg}
+
     def select_camera(self, role: str, index: int) -> dict:
         if role != "hand":
             return {"ok": False, "reply": "이 모드에서는 손 카메라만 고를 수 있어요"}
+        if index in self.cam_disabled:
+            return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라예요 — 먼저 켜 주세요"}
         if index == self.camera_index:
             return {"ok": True, "reply": f"이미 {index}번 카메라를 쓰고 있어요"}
         self.camera_index = index
@@ -697,7 +758,8 @@ class Runtime:
             snap["robot"] = self.link.info()
             snap["camera_roles"] = ["hand"]
             snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
-            snap["camera"] = {"index": self.camera_index, "error": self.cam_error, "fps": round(self.fps, 1),
+            snap["camera_disabled"] = sorted(self.cam_disabled)
+            snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
                               "running": self._camera_ok(), "infer_ms": round(self.infer_ms)}
             snap["detector"] = {"name": self.detector_info, "yolo": self.yolo is not None,
                                 "labels": list(self.yolo.names.values()) if self.yolo else list(LABELS)}
@@ -718,6 +780,18 @@ class Runtime:
             st = self.state()
             st["result"] = {"ok": True, "cameras": cams, "names": self.device_names()}
             return st
+        if a == "camera_power":
+            try:
+                idx, on = int(p["index"]), bool(p.get("on"))
+            except (KeyError, TypeError, ValueError):
+                st = self.state()
+                st["result"] = {"ok": False, "reply": "카메라 번호가 잘못됐어요"}
+                return st
+            with self.lock:
+                out = self.set_camera_power(idx, on)
+            st = self.state()
+            st["result"] = out
+            return st
         if a == "camera_select":
             try:
                 role, idx = str(p.get("role", "hand")), int(p["index"])
@@ -735,8 +809,12 @@ class Runtime:
             pre = self.task.vlm.interpret(str(p.get("text", "")))   # VLM 은 느릴 수 있어 잠금 밖에서 먼저
         with self.lock:
             out: dict = {}
-            if a in ("request", "raw", "confirm", "hand") and not self.link.connected:
+            if (a in ("request", "raw", "confirm", "hand")
+                    or (a == "manual" and p.get("step") not in ("done", "fail", "idle", "placed", "skip_open", "receive"))) \
+                    and not self.link.connected:
                 out = {"ok": False, "reply": "로봇이 연결되지 않았어요 — USB · 전원을 확인하세요"}
+            elif a == "manual":
+                out = self.task.manual(str(p.get("step", "")))
             elif a == "request":
                 out = self.task.request(str(p.get("text", "")), pre=pre)
             elif a in ("confirm", "hand"):

@@ -352,3 +352,62 @@ class YoloTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ManualStepTests(unittest.TestCase):
+    """인식이 실패해도 버튼만으로 끝까지 진행할 수 있는지"""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.link = FakeLink()
+        self.task = HandoverTask(self.link, clock=self.clock)
+
+    def keys(self):
+        return [o["key"] for o in self.task.manual_options()]
+
+    def test_full_cycle_with_buttons_only_and_no_robot_replies(self):
+        self.assertEqual(self.keys(), ["req_bolt", "req_nut"])
+        self.assertTrue(self.task.manual("req_bolt")["ok"])
+        self.assertEqual(self.task.state, "REQUEST")
+        self.task.manual("skip_open")                 # OPEN 응답이 안 와도
+        self.assertEqual(self.task.state, "RECEIVE")
+        self.task.manual("grip")                      # 카메라가 못 알아봐도
+        self.assertEqual((self.task.state, self.link.sent[-1]), ("GRIP", "GRIP"))
+        self.task.manual("place")
+        self.assertEqual((self.task.state, self.link.sent[-1]), ("PLACE", "PLACE,180"))
+        self.task.manual("placed")
+        self.assertEqual(self.task.state, "HOME")
+        self.task.manual("done")
+        self.assertEqual(self.task.state, "IDLE")
+        self.assertEqual(self.task.stats()["done"], 1)
+
+    def test_ng_then_receive_again_and_fail(self):
+        self.task.manual("req_nut")
+        self.task.manual("skip_open")
+        self.task.manual("ng")
+        self.assertEqual((self.task.state, self.link.sent[-1]), ("VERIFY", "NG"))
+        self.task.manual("receive")
+        self.assertEqual(self.task.state, "RECEIVE")
+        self.task.manual("grip"); self.task.manual("place"); self.task.manual("placed")
+        self.task.manual("fail")
+        self.assertEqual(self.task.stats()["failed"], 1)
+
+    def test_wrong_step_rejected_and_stop_hides_buttons(self):
+        self.assertFalse(self.task.manual("grip")["ok"])
+        self.task.stop()
+        self.assertEqual(self.task.manual_options(), [])
+
+    def test_late_robot_reply_is_ignored_after_manual_skip(self):
+        self.task.manual("req_bolt"); self.task.manual("skip_open"); self.task.manual("grip"); self.task.manual("place")
+        self.link.rx.append("DONE,GRIP")              # 늦게 온 쥐기 완료 응답
+        self.task.step(None)
+        self.assertEqual(self.task.state, "PLACE")
+
+
+class ManualBusyTests(unittest.TestCase):
+    def test_manual_request_refused_while_robot_moving(self):
+        task = HandoverTask(FakeLink(), clock=FakeClock())
+        task._send("PLACE,180")                       # 직접 조작으로 움직이는 중
+        out = task.manual("req_bolt")
+        self.assertFalse(out["ok"])
+        self.assertEqual(task.state, "IDLE")
