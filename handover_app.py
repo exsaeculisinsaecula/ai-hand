@@ -1,6 +1,7 @@
 """AiHand 받기 작업 실행 — 기존 대시보드(index.html)에 실물 과정을 그대로 보여준다.
 
-  .venv/bin/python handover_app.py --port /dev/cu.usbmodem145102 --camera 1
+  .venv/bin/python handover_app.py                (macOS/Linux)
+  .venv\\Scripts\\python.exe handover_app.py        (Windows, run_windows.bat)
   .venv/bin/python handover_app.py --mock            # 로봇 없이 시험 (모의 micro:bit)
 
 과정: 입력(볼트/너트/와셔) → 손 펴기 → 웹캠 로컬 인식 → 쥐기 → 왼쪽(180°) 회전·내려놓기 → 복귀
@@ -123,11 +124,30 @@ class RobotLink:
             self._install_tries = 0
             self._install_block_until = 0.0
 
+    MICROBIT_VID = 0x0D28                    # BBC micro:bit (DAPLink / CMSIS-DAP)
+
+    @classmethod
+    def list_microbit_ports(cls) -> list[str]:
+        """Windows(COM5) · macOS(/dev/cu.usbmodem…) · Linux(/dev/ttyACM0) 공통 micro:bit 포트 찾기."""
+        from serial.tools import list_ports
+        found = []
+        for p in list_ports.comports():
+            desc = f"{p.description} {p.manufacturer or ''} {p.product or ''}".lower()
+            if p.vid == cls.MICROBIT_VID or "micro:bit" in desc or "microbit" in desc or "mbed" in desc or "daplink" in desc:
+                found.append(p.device)
+        if not found:                         # 드라이버가 이름을 안 알려 줄 때: macOS/Linux 장치 이름으로
+            found = [p.device for p in list_ports.comports()
+                     if "usbmodem" in p.device or p.device.startswith("/dev/ttyACM")]
+        return sorted(found)
+
     def _find_port(self) -> str:
-        import glob
-        ports = sorted(glob.glob("/dev/cu.usbmodem*"))
-        if self.port_hint in ports:
+        ports = self.list_microbit_ports()
+        if self.port_hint and self.port_hint in ports:
             return self.port_hint
+        if self.port_hint and not ports:
+            from serial.tools import list_ports
+            if any(p.device == self.port_hint for p in list_ports.comports()):
+                return self.port_hint           # 직접 지정한 포트 (예: --port COM5)
         return ports[0] if ports else ""
 
     def _open(self, port: str):
@@ -372,14 +392,14 @@ class Runtime:
     # ---- settings ----
     def _load_roi(self):
         try:
-            return tuple(float(x) for x in json.loads(self.ROI_FILE.read_text()))
+            return tuple(float(x) for x in json.loads(self.ROI_FILE.read_text(encoding="utf-8")))
         except Exception:
             return self.DEFAULT_ROI
 
     @classmethod
     def read_settings(cls) -> dict:
         try:
-            return json.loads(cls.SETTINGS_FILE.read_text())
+            return json.loads(cls.SETTINGS_FILE.read_text(encoding="utf-8"))
         except Exception:
             return {}
 
@@ -395,7 +415,7 @@ class Runtime:
         st["place_angle"] = self.task.place_angle
         st.update(extra)
         self.SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        self.SETTINGS_FILE.write_text(json.dumps(st, ensure_ascii=False))
+        self.SETTINGS_FILE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
 
     def set_roi(self, x0, y0, x1, y1) -> bool:
         x0, x1 = sorted((max(0.0, min(1.0, float(x0))), max(0.0, min(1.0, float(x1)))))
@@ -404,7 +424,7 @@ class Runtime:
             return False
         self.palm_roi = (round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3))
         self.ROI_FILE.parent.mkdir(parents=True, exist_ok=True)
-        self.ROI_FILE.write_text(json.dumps(self.palm_roi))
+        self.ROI_FILE.write_text(json.dumps(self.palm_roi), encoding="utf-8")
         return True
 
     # ---- drawing ----
@@ -662,7 +682,7 @@ class Runtime:
                 from glob import glob
                 names = []
                 for dev in sorted(glob("/sys/class/video4linux/video*/name")):
-                    names.append(Path(dev).read_text().strip())
+                    names.append(Path(dev).read_text(encoding="utf-8", errors="replace").strip())
                 return names
         except Exception:
             pass

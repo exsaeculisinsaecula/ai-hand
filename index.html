@@ -2343,6 +2343,149 @@
   .col-left .status-col { grid-template-rows: calc(44px + var(--row-gap) + var(--h-primary)) var(--h-secondary) 64px 48px; }
 
   #hiPlace .place-angle span::after { content: ' (정면 90°)'; color: var(--text-muted); }
+
+  /* =====================================================================
+     RESPONSIVE v4 — one layout that scales from phone to 4K
+     ===================================================================== */
+  .console { grid-template-columns: minmax(0, 1fr); }
+  .sysbar, .alarm-banner, .main-split, .col-left, .col-right, .col-left > *, .col-right > * { min-width: 0; }
+  :root { --pad: clamp(14px, 1.6vw, 24px); --row-gap: clamp(8px, 0.9vw, 12px); }
+
+  /* fluid type inside cards */
+  .status-state, .col-left .status-state { font-size: clamp(22px, 2.3vw, 40px); }
+  .status-card .sm-name { font-size: clamp(11px, 1.05vw, 16px); white-space: nowrap; }
+  .status-card .bar-meta { font-size: clamp(14px, 1.15vw, 17px); }
+  .status-card .bar-meta > span:first-child { flex: 1 1 auto; }
+  #simTimer { flex: none; font-size: clamp(14px, 1.15vw, 18px); }
+
+  /* status column: natural row heights (no fixed empty rows) */
+  .status-col, .col-left .status-col { grid-template-rows: none !important; grid-auto-rows: auto; grid-template-columns: minmax(0, 1fr); }
+  .status-top { min-width: 0; }
+
+  /* camera title bar: tools wrap under the title when there is no room */
+  #cameraWindow .win-titlebar { height: auto; min-height: 56px; flex-wrap: wrap; }
+  #cameraWindow .win-tools { flex: 1 1 auto; justify-content: flex-end; flex-wrap: wrap; padding: 6px 10px; min-width: 0; }
+  #cameraWindow .win-tools .learn-row { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; }
+  .col-left .win-titlebar { flex-wrap: wrap; height: auto; min-height: 52px; }
+  .col-left .win-tools { flex-wrap: wrap; padding: 6px; }
+  .verdict-top { flex-wrap: wrap; row-gap: 4px; }
+  .verdict-reason { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 200px; }
+  .manual-btns { flex-wrap: wrap; row-gap: 8px; }
+  .manual-row { flex-wrap: wrap; padding-top: 8px; }
+
+  /* ---- short desktop screens (e.g. 1280x720, 1366x768): scroll instead of squeezing ---- */
+  @media (min-width: 1021px) and (max-height: 779px) {
+    html, body { height: auto !important; overflow: auto !important; }
+    .console { height: auto !important; overflow: visible !important; }
+    .col-right .cam-stage { flex: none !important; height: auto !important; aspect-ratio: 16 / 9; }
+    .col-left .mp-window > .canvas-wrap { flex: none !important; height: 380px !important; }
+  }
+
+  /* ---- tablet & below: one column — status, camera, request, robot ---- */
+  @media (max-width: 1020px) {
+    html, body { height: auto !important; overflow: auto !important; }
+    .console { height: auto !important; display: flex !important; flex-direction: column; padding: 12px 14px 20px; gap: 10px; }
+    .main-split { display: flex !important; flex-direction: column; gap: 10px; }
+    .col-left, .col-right { display: contents; }
+    .col-left > .status-card { order: 1; }
+    .col-right > #cameraWindow { order: 2; }
+    .col-right > .ask-card { order: 3; }
+    .col-left > .mp-window { order: 4; }
+    .col-right .cam-stage { flex: none !important; height: auto !important; max-height: none !important; aspect-ratio: 16 / 9; min-height: 0; }
+    .col-left .mp-window > .canvas-wrap { flex: none !important; height: clamp(260px, 58vw, 440px) !important; }
+    .sysbar { flex-wrap: wrap; height: auto !important; padding: 8px 10px 10px 0; row-gap: 8px; }
+    .sysbar-right { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  }
+
+  /* ---- phone ---- */
+  @media (max-width: 640px) {
+    .console { padding: 8px 8px 16px; gap: 8px; }
+    .sysbar { padding: 8px; }
+    .sys-meta { padding: 0 4px; gap: 10px; }
+    .sys-title { font-size: 17px; letter-spacing: 0.04em; }
+    .sys-title::before { width: 8px; height: 8px; margin-right: 8px; }
+    .sys-clock { font-size: 16px; padding-left: 10px; }
+    .sysbar-right { width: 100%; display: grid !important; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .hdr-block, .shift-stats.hdr-group { height: 52px; padding: 0 10px; }
+    .hdr-label { font-size: 11px; }
+    .hdr-value { font-size: 15px; }
+    #camBlock[hidden] { display: none !important; }
+    .resume-btn { grid-column: 1 / -1; }
+    .estop-btn { grid-column: 1 / -1; width: 100%; min-width: 0; height: 60px; min-height: 60px; justify-content: center; }
+    .estop-text b { font-size: 22px; }
+    .alarm-banner { height: auto; min-height: 48px; }
+    .alarm-tag { min-width: 64px; padding: 0 12px; font-size: 13px; }
+    .alarm-text, .alarm-banner[data-kind="ok"] .alarm-text { font-size: 14px; white-space: normal; word-break: keep-all; }
+    .alarm-time { display: none; }
+    .alarm-ack { padding: 0 14px; font-size: 15px; }
+
+    .status-col { padding: 14px 14px 12px !important; }
+    .status-top, .col-left .status-top { grid-template-columns: 1fr !important; grid-template-rows: auto !important; row-gap: 10px; }
+    .col-left .status-label { grid-row: auto; }
+    .status-top .status-now, .col-left .status-top .status-now { grid-row: auto; grid-column: 1; }
+    .status-top .status-actions, .col-left .status-top .status-actions { grid-row: auto; grid-column: 1; display: grid; grid-template-columns: 1fr 1fr; width: 100%; justify-self: stretch; }
+    .status-label { font-size: 13px; }
+    .status-state { font-size: 22px; white-space: normal; }
+    .status-card .sm-grid { padding-left: 0; padding-right: 0; }
+    .status-card .sm-name { font-size: 11px; letter-spacing: 0; }
+    .status-card .sm-cell { padding-top: 12px; }
+    .manual-btn { flex: 1 1 calc(50% - 8px); font-size: 14px; padding: 0 8px; }
+
+    .ask-card .ask-box { padding: 12px 14px 14px !important; }
+    .ask-label { font-size: 14px; }
+    .ask-field input { font-size: 17px; padding: 0 8px; }
+    .ask-field::before { font-size: 17px; }
+    .ask-send { font-size: 15px; padding: 0 16px; }
+    .ask-examples button { font-size: 13px; padding: 0 8px; }
+    .ask-card .vlm-reply { font-size: 14px; max-width: 100%; }
+    .ask-card .vlm-cues { display: none; }
+
+    #cameraWindow .win-tools { justify-content: flex-start; }
+    #cameraWindow .win-tools .learn-row { justify-content: flex-start; }
+    #cameraWindow .win-tools .learn-row .mp-btn { height: 34px; font-size: 13px; padding: 0 8px; }
+    .verdict-reason { font-size: 13px; }
+    .win-label { font-size: 15px; }
+    .col-left .win-tool-btn { font-size: 12px; padding: 0 7px; height: 30px; }
+    .col-left .robot-ctrl { flex-wrap: wrap; row-gap: 6px; }
+    .col-left .robot-ctrl .mp-btn { height: 34px; font-size: 13px; padding: 0 9px; }
+    .drawer-tabs button { padding: 0 10px; font-size: 14px; }
+    .ho-info > div { grid-template-columns: 96px 1fr; font-size: 14px; }
+    .cam-modal { padding: 8px; }
+    .cam-modal-panel { padding: 14px; }
+    .cam-picker-head { flex-wrap: wrap; }
+    .cam-picker-head b { font-size: 19px; width: 100%; }
+    .cam-picker-list { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .estop-panel { padding: 0 16px 18px; }
+  }
+
+  /* ---- very large screens: keep proportions, don't stretch forever ---- */
+  @media (min-width: 2200px) {
+    .console { max-width: 2400px; margin: 0 auto; }
+  }
+
+  /* ---- narrow laptops: compact header so E-STOP always fits ---- */
+  @media (min-width: 641px) and (max-width: 1400px) {
+    .sysbar { flex-wrap: wrap; height: auto !important; row-gap: 8px; }
+    .sysbar-right { margin-left: auto; flex-wrap: nowrap; }
+    .estop-btn { min-width: 0; padding: 6px 18px 6px 14px; gap: 10px; }
+    .estop-text b { font-size: 22px; }
+    .estop-icon { width: 28px; height: 28px; }
+    .hdr-block { padding: 0 12px; }
+    .hdr-value { font-size: 17px; }
+    .sys-meta { padding-left: 16px; gap: 12px; }
+    .sys-title { font-size: 18px; }
+    .sys-clock { font-size: 18px; padding-left: 12px; }
+  }
+
+  @media (min-width: 1281px) and (max-width: 1400px) {
+    .shift-stat { min-width: 70px; padding: 0 12px; }
+  }
+  @media (max-width: 400px) {
+    .status-top > *, .col-left .status-top > * { min-width: 0; }
+    .status-now { flex-wrap: wrap; gap: 8px; }
+    .status-top .status-actions .side-btn { padding: 0 6px; font-size: 15px; min-width: 0; }
+    .status-label::after { display: none; }
+  }
 </style>
 </head>
 <body>
@@ -4506,7 +4649,7 @@
 
   const canPollBackend =
     (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
-    window.self === window.top;
+    (window.self === window.top || new URLSearchParams(location.search).has('embed'));   // 미리보기(iframe)에서도 실물 데이터
 
   async function pollBackend() {
     if (!canPollBackend) return;

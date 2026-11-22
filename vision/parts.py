@@ -137,7 +137,7 @@ class PartClassifier:
             for p in sorted((self.data_dir / label).glob("*.jpg")):
                 fj = p.with_suffix(".json")
                 if fj.exists():
-                    f = json.loads(fj.read_text())
+                    f = json.loads(fj.read_text(encoding="utf-8"))
                 else:
                     img = cv2.imread(str(p))
                     f = extract_features(img)[0] if img is not None else None
@@ -157,7 +157,7 @@ class PartClassifier:
         d.mkdir(parents=True, exist_ok=True)
         stem = d / f"{int(time.time() * 1000)}"
         cv2.imwrite(str(stem.with_suffix(".jpg")), frame)
-        stem.with_suffix(".json").write_text(json.dumps(f))
+        stem.with_suffix(".json").write_text(json.dumps(f), encoding="utf-8")
         self.samples.append((f, label))
         return True
 

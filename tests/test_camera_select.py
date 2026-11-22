@@ -196,3 +196,33 @@ class CameraWatchdogTests(unittest.TestCase):
         rt.cam_disabled = {1}                               # 꺼 둔 카메라는 감시하지 않음
         rt._camera_watchdog()
         self.assertEqual(rt._cam_gen, 0)
+
+
+class PortDiscoveryTests(unittest.TestCase):
+    """micro:bit 포트 자동 찾기 — Windows COM / macOS / Linux"""
+
+    def _ports(self, *items):
+        return [mock.Mock(device=d, vid=v, description=desc, manufacturer=None, product=None) for d, v, desc in items]
+
+    def test_windows_com_port_by_vid(self):
+        ports = self._ports(("COM3", None, "Bluetooth 링크를 통한 표준 직렬"), ("COM5", 0x0D28, "USB Serial Device (COM5)"))
+        with mock.patch("serial.tools.list_ports.comports", return_value=ports):
+            self.assertEqual(app.RobotLink.list_microbit_ports(), ["COM5"])
+            link = app.RobotLink.__new__(app.RobotLink)
+            link.port_hint = ""
+            self.assertEqual(link._find_port(), "COM5")
+
+    def test_windows_manual_port_hint(self):
+        ports = self._ports(("COM7", None, "USB-SERIAL CH340"))
+        with mock.patch("serial.tools.list_ports.comports", return_value=ports):
+            link = app.RobotLink.__new__(app.RobotLink)
+            link.port_hint = "COM7"                  # --port COM7
+            self.assertEqual(link._find_port(), "COM7")
+
+    def test_macos_and_linux_names(self):
+        ports = self._ports(("/dev/cu.Bluetooth-Incoming-Port", None, "n/a"), ("/dev/cu.usbmodem145102", None, "n/a"))
+        with mock.patch("serial.tools.list_ports.comports", return_value=ports):
+            self.assertEqual(app.RobotLink.list_microbit_ports(), ["/dev/cu.usbmodem145102"])
+        ports = self._ports(("/dev/ttyACM0", None, "n/a"))
+        with mock.patch("serial.tools.list_ports.comports", return_value=ports):
+            self.assertEqual(app.RobotLink.list_microbit_ports(), ["/dev/ttyACM0"])

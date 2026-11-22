@@ -72,6 +72,9 @@ python3 -m venv .venv
 # 옵션: --camera 1  --model models/neuralgrip_best_two.pt  --conf 0.35  --port /dev/cu.usbmodemXXXX
 ```
 
+**Windows**: `setup_windows.bat`(처음 한 번) → `run_windows.bat`. micro:bit 는 COM 포트를 자동으로 찾고(직접 지정: `run_windows.bat --port COM5`),
+카메라는 대시보드 [카메라 선택]에서 고릅니다. 대시보드는 휴대폰·태블릿·노트북 화면 크기에 맞춰 배치가 바뀝니다.
+
 | 항목 | 값 |
 |---|---|
 | 인식 | 팀 YOLO best_two.pt (0=bolt, 1=nut). 와셔는 학습에서 제외 → 요청하면 안내만 함. 불러오지 못하면 모양 규칙으로 대체 |
