@@ -4898,7 +4898,7 @@
         <button type="button" class="tile-btn tile-pick" title="연결된 카메라를 미리보기로 보고 고르기">미리보기</button>
         <button type="button" class="tile-btn tile-look" title="VLM 이 이 카메라 화면을 보고 무엇인지·색·개수·위치·상태를 알려 줌 (약 2~3초)">관찰</button>
         <button type="button" class="tile-btn tile-power" title="이 카메라 끄기/켜기 (저장됨)">끄기</button>
-        ${hand ? '' : '<button type="button" class="tile-btn tile-tray" title="이 칸을 쟁반 카메라로 (색 규칙으로 공 찾기)">쟁반</button>'}</div>`,
+        ${hand ? '' : '<button type="button" class="tile-btn tile-tray" title="이 칸을 쟁반 카메라로 (공 색은 팀원 VLM, 꺼져 있으면 색 규칙)">쟁반</button>'}</div>`,
     };
   }
   function buildCamGrid() {
@@ -5228,20 +5228,21 @@
         return cx > x0 - mx && cx < x1 + mx && cy > y0 - my && cy < y1 + my;
       };
       const items = (ho.balls || []).filter((b) => near(b) || b.conf >= 0.72).map((b) => {
-        const label = vlmNow && vl.label ? vl.label : b.label;
-        let meta = `${vOn ? '색 추정' : '색 규칙'} ${Math.round(b.conf * 100)}%`;
-        if (snap.vlm_state === 'checking') meta = 'VLM 확인 중…';
-        else if (vlmNow) meta = `VLM 확인 · ${vl.seconds}s`;
+        const pending = b.label === 'pending';
+        const label = pending ? 'object' : (vlmNow && vl.label ? vl.label : b.label);
+        let meta = b.by === 'vlm' ? 'VLM 색' : `색 규칙 ${Math.round(b.conf * 100)}%`;
+        if (pending || snap.vlm_state === 'checking') meta = 'VLM 색 확인 중';
+        else if (vlmNow) meta = `VLM 색 · ${vl.seconds}s`;
         if (det.state && det.state !== '없음' && ['GRIP', 'PLACE'].includes(snap.state)) meta += ` · ${det.state}`;
         const obj = det.object && det.object !== '없음' && ['GRIP', 'PLACE'].includes(snap.state)
           ? det.object.replace(/^(빨간|파란|초록)(색)?\s*/, '') : '';
         const isTarget = snap.target && label === snap.target;
-        return { box: b.box, label, color: COLOR_KO[label] || label, kind: obj || '공', meta, picked: Boolean(isTarget) };
+        return { box: b.box, label, color: pending ? '확인 중' : (COLOR_KO[label] || label), kind: obj || '공', meta, picked: Boolean(isTarget) };
       });
       const tray = ho.tray_here ? trayItems(snap) : [];
       const mine = items.filter((it) => !tray.some((t) => iou(t.box, it.box) > 0.3));      // 쟁반 공은 번호 달린 상자로 한 번만
       const zoneMeta = { IDLE: '대기 — 공을 요청하십시오', REQUEST: '손 펴는 중', RECEIVE: `여기에 ${snap.target_ko || '공'}을 올려 주십시오`,
-        VERIFY: snap.vlm_step === 'second' ? 'VLM 두 번째 확인 중' : (snap.vlm_state === 'checking' ? 'VLM 판정 중' : '다른 공 — 치워 주십시오'),
+        VERIFY: snap.vlm_state === 'checking' ? 'VLM 색 확인 중' : '다른 공 — 치워 주십시오',
         GRIP: '쥐는 중', PLACE: '내려놓는 중', HOME: 'VLM 손 빔 확인' }[snap.state] || '';
       const zone = ho.size && ho.palm ? [{
         box: [ho.palm[0] * ho.size[0], ho.palm[1] * ho.size[1], (ho.palm[2] - ho.palm[0]) * ho.size[0], (ho.palm[3] - ho.palm[1]) * ho.size[1]],
@@ -5279,12 +5280,12 @@
     });
   }
 
-  // ===== 판정 방식 (알람 바로 위): VLM 이 최종 판정 · 규칙은 교차 확인 =====
+  // ===== 판정 방식 (알람 바로 위): 색 이름은 팀원 ask_vlm =====
   const JUDGE_STEPS = [
-    ['detect', '놓임 감지', '손 영역이 빈 손 사진과 달라지고 1초 멈추면 → VLM 에게 물음', '규칙'],
-    ['vlm', 'VLM 판정', '팀원 vlm_go 의 ask_vlm 을 그대로 호출 — 손 위 사진에 요청한 공이 있나? → found true / false', 'VLM'],
-    ['rule', '규칙 교차 확인', '색 규칙(HSV)과 다르면 공만 가까이 잘라 ask_vlm 을 한 번 더 — 최종 판단은 VLM', '규칙 → VLM'],
-    ['act', '로봇 신호', '요청한 공이면 GRIP · 다른 공이면 NG · 없으면 기다림 · 내려놓은 뒤 손 빔도 VLM 이 확인', 'VLM'],
+    ['detect', '놓임 감지', '손 영역이 빈 손 사진과 달라지고 1초 멈추면 → VLM 에게 물음', '화면 변화'],
+    ['vlm', 'VLM 색 판정', '팀원 vlm_go 의 ask_vlm 을 빨간 공·파란 공·초록 공에 한 번씩 호출한다. true 인 색이 손 위 공의 색이다', 'VLM'],
+    ['rule', '요청과 비교', '그 색이 요청한 공이면 쥐고, 다른 색이면 넘긴다. 아무 색도 아니면 기다린다. VLM 이 답이 없을 때만 색 규칙', 'VLM'],
+    ['act', '로봇 신호', 'GRIP · NG · 대기. 내려놓은 뒤 손이 비었는지도 같은 ask_vlm 이 확인', 'VLM'],
   ];
   function buildJudgePanel() {
     if (document.getElementById('judgePanel')) return;
@@ -5316,18 +5317,20 @@
     buildJudgePanel();
     const vOn = snap.vlm && snap.vlm.online;
     document.getElementById('jpMode').textContent = vOn
-      ? `손 위 판정은 팀원 vlm_go 의 ask_vlm(${snap.vlm.model}) 그대로 · 규칙은 놓임 감지와 교차 확인만 · 문장 이해와 관찰은 대시보드 기능`
+      ? `색 판단은 팀원 vlm_go 의 ask_vlm(${snap.vlm.model}) 을 세 색에 한 번씩 · 답이 없을 때만 색 규칙 · 문장 이해와 관찰은 대시보드 기능`
       : 'VLM 꺼짐 — 지금은 색 규칙만으로 판정합니다 (Ollama 를 켜면 자동으로 VLM 판정)';
     document.getElementById('judgePanel').classList.toggle('vlm-off', !vOn);
-    const step = snap.vlm_step === 'second' ? 'rule'
-      : (snap.vlm_step ? 'vlm' : snap.state === 'RECEIVE' ? 'detect' : ['GRIP', 'PLACE', 'HOME'].includes(snap.state) ? 'act' : '');
+    const step = snap.vlm_step ? 'vlm'
+      : snap.state === 'RECEIVE' ? 'detect'
+      : snap.state === 'VERIFY' ? 'rule'
+      : ['GRIP', 'PLACE', 'HOME'].includes(snap.state) ? 'act' : '';
     document.querySelectorAll('.jp-steps li').forEach((li) => li.classList.toggle('on', li.dataset.step === step));
     const d = snap.decision;
     const last = document.getElementById('jpLast');
-    const text = d
-      ? `${d.time} · 요청 ${d.target || '-'} · VLM ${d.vlm} · 규칙 ${d.rule}${d.rule_conf != null ? ` ${Math.round(d.rule_conf * 100)}%` : ''}`
-        + ` · ${d.second ? `달라서 두 번째 확인 → ${d.second}` : (d.rule === '-' ? '규칙 자신 없음 → VLM 판정' : '일치')} → ${d.final}`
-      : '최근 판정이 여기에 표시됩니다';
+    const text = !d ? '최근 판정이 여기에 표시됩니다'
+      : d.final === '규칙'
+        ? `${d.time} · 요청 ${d.target || '-'} · VLM 응답 없음 → 색 규칙 ${d.rule}${d.rule_conf != null ? ` ${Math.round(d.rule_conf * 100)}%` : ''} → 규칙`
+        : `${d.time} · 요청 ${d.target || '-'} · VLM 색 ${d.color || '-'} → ${d.final}`;
     if (last.textContent !== text) { last.textContent = text; last.classList.remove('swap-in'); void last.offsetWidth; last.classList.add('swap-in'); }
   }
 

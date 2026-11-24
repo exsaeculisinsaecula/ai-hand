@@ -501,7 +501,7 @@ class Runtime:
             def _vlm_changed(online: bool) -> None:
                 if online:
                     seen_online[0] = True
-                    self.task._log("SYS", f"VLM 연결됨: {vlm.model} ({vlm.url}) — 검색창 문장 이해 + 손 위 공 확인")
+                    self.task._log("SYS", f"VLM 연결됨: {vlm.model} ({vlm.url}) — 문장 이해 + 손 위·쟁반 색은 팀원 ask_vlm")
                 else:                               # 처음부터 꺼져 있으면 조용히, 쓰다가 끊기면 알람
                     self.task._log("ERR" if seen_online[0] else "SYS",
                                    f"VLM 꺼짐: {vlm.status_note} — 단어 규칙·색 규칙으로 동작")
@@ -510,6 +510,9 @@ class Runtime:
         self._cam_switch = False
         self.cam_disabled: set[int] = set(int(i) for i in self.read_settings().get("camera_disabled", []))
         self.lock = threading.Lock()
+        self._color_cache: dict = {}               # 쟁반·화면 공 색 (팀원 ask_vlm). 키 = 상자 중심을 48px 로 나눈 칸
+        self._color_pending: set = set()
+        self._color_lock = threading.Lock()
         self.frame = None
         self.frame_id = 0
         self.jpeg: bytes | None = None
@@ -584,7 +587,9 @@ class Runtime:
             return {"ok": False, "reply": "먼저 그 칸에 카메라를 고르십시오"}
         self.tray_slot = None if slot == self.tray_slot else slot          # 같은 칸을 다시 누르면 해제
         self._save_views()
-        msg = f"{self.tray_slot}번 칸을 쟁반 카메라로 씁니다 (색 규칙)" if self.tray_slot else "쟁반 카메라 해제 — 손 카메라 화면에서 찾습니다"
+        active = getattr(self.task, "vlm_active", None)
+        how = "팀원 VLM" if callable(active) and active() else "색 규칙"
+        msg = f"{self.tray_slot}번 칸을 쟁반 카메라로 씁니다 (색은 {how})" if self.tray_slot else "쟁반 카메라 해제 — 손 카메라 화면에서 찾습니다"
         self.task._log("SYS", msg)
         return {"ok": True, "reply": msg}
 
@@ -606,9 +611,13 @@ class Runtime:
                 self._tray_view_items = []
             else:
                 fw = tf.shape[1]
+                found = find_balls(tf)
+                if self.task.vlm_active():
+                    found = self._vlm_color_items(tf, found)
                 self._tray_view_items = [{"label": d["label"], "conf": d["conf"], "box": d["box"],
                                           "xn": round((d["box"][0] + d["box"][2] / 2) / fw, 3)}
-                                         for d in find_balls(tf) if d["conf"] >= TRAY_MIN_CONF]
+                                         for d in found
+                                         if d["label"] == "pending" or d["conf"] >= TRAY_MIN_CONF]
             with self.lock:
                 self.task.update_tray(list(self._tray_view_items))
 
@@ -1144,20 +1153,90 @@ class Runtime:
             mx, my = (px1 - px0) * 0.15, (py1 - py0) * 0.15
             near_palm = (max(0.0, px0 - mx), max(0.0, py0 - my), min(1.0, px1 + mx), min(1.0, py1 + my))
             balls = find_balls(frame, max_balls=6) if self.yolo is None else                 [x for x in dets if x.get("label") in LABELS]
+            if self.task.vlm_active() and self.task.state in ("REQUEST", "RECEIVE", "VERIFY"):
+                balls = self._vlm_color_items(frame, balls)
             with self.lock:
                 self.hand_balls = {"size": [frame.shape[1], frame.shape[0]], "balls": balls}
                 self.overlay = {"dets": dets, "best": d if res.label != "none" else None}
                 self.result = d
                 self.task.update_tray(tray_items)
 
+    def _color_key(self, box) -> tuple:
+        x, y, w, h = (int(v) for v in box)
+        return ((x + w // 2) // 48, (y + h // 2) // 48)
+
+    def _submit_color(self, key: tuple, img) -> None:
+        with self._color_lock:
+            if key in self._color_pending or key in self._color_cache:
+                return
+            self._color_pending.add(key)
+        fut = self.task.vlm.submit_colors_bg(img)
+
+        def _done(f, key=key):
+            try:
+                v = f.result()
+            except Exception:
+                v = {"ok": False}
+            if v.get("ok") and v.get("ambiguous"):
+                label = "ambiguous"
+            elif v.get("ok") and v.get("label") in LABELS:
+                label = v["label"]
+            elif v.get("ok"):
+                label = "none"
+            else:
+                label = None                         # 응답 없음 → 캐시하지 않음 (Ollama 가 꺼지면 색 규칙으로 돌아감)
+            with self._color_lock:
+                self._color_pending.discard(key)
+                if label:
+                    self._color_cache[key] = label
+                    while len(self._color_cache) > 48:
+                        self._color_cache.pop(next(iter(self._color_cache)))
+
+        fut.add_done_callback(_done)
+
+    def _vlm_color_items(self, frame, items: list[dict]) -> list[dict]:
+        """상자 위치는 그대로 두고 색 이름만 팀원 ask_vlm(세 색) 결과로 바꾼다.
+        아직 답이 없으면 label=pending. 공이 아니거나 색이 겹치면 목록에서 뺀다.
+        한 번에 한 공만 물어, 쥐기 판정과 Ollama 를 오래 나누어 쓰지 않게 한다."""
+        if not items or not self.task.vlm_active():
+            return items
+        out = []
+        submitted = False
+        with self._color_lock:
+            busy = bool(self._color_pending)
+        for d in items:
+            box = tuple(int(v) for v in d["box"])
+            key = self._color_key(box)
+            with self._color_lock:
+                hit = self._color_cache.get(key)
+                waiting = key in self._color_pending
+            if hit in LABELS:
+                out.append({**d, "label": hit, "conf": 0.9, "by": "vlm", "box": box})
+            elif hit in ("none", "ambiguous"):
+                continue
+            else:
+                if not waiting and not busy and not submitted and self.task._vlm_job is None:
+                    img = self.task.vlm.crop(frame, box, margin=0.35)
+                    if img is None:
+                        with self._color_lock:
+                            self._color_cache[key] = "none"
+                    else:
+                        self._submit_color(key, img)
+                        submitted = True
+                out.append({**d, "label": "pending", "conf": 0, "by": "vlm", "box": box})
+        return out
+
     def _tray_items(self, frame, dets) -> list[dict]:
-        """손 영역 밖(또는 지정한 쟁반 영역 안)의 공 탐지. YOLO 가 없으면 색 규칙(find_balls)."""
+        """손 영역 밖(또는 지정한 쟁반 영역 안)의 공 탐지.
+        공 위치는 색 덩어리로 찾고, VLM 이 켜져 있으면 색 이름은 팀원 ask_vlm 이 정한다."""
         if self.yolo is None:
             if self.task.target is None or self.task.state not in ("REQUEST", "RECEIVE"):
                 return []                           # 요청 중일 때만 찾음
             if self._tray_view() is not None:
                 return list(self._tray_view_items)   # 쟁반 칸은 자기 스레드(_tray_view_loop)가 찾음
             dets = find_balls(frame, roi=self.tray_roi, exclude=self.palm_roi)
+        if self.task.vlm_active() and self.task.state in ("REQUEST", "RECEIVE") and self._tray_view() is None:
+            dets = self._vlm_color_items(frame, dets)
         h, w = frame.shape[:2]
         px0, py0, px1, py1 = self.palm_roi
         out = []
@@ -1167,7 +1246,8 @@ class Runtime:
             in_palm = px0 <= cx <= px1 and py0 <= cy <= py1
             in_tray = (self.tray_roi[0] <= cx <= self.tray_roi[2] and self.tray_roi[1] <= cy <= self.tray_roi[3]) \
                 if self.tray_roi else not in_palm
-            if in_tray and not in_palm and d["label"] in LABELS and d["conf"] >= TRAY_MIN_CONF:
+            colored = d["label"] in LABELS and d["conf"] >= TRAY_MIN_CONF
+            if in_tray and not in_palm and (d["label"] == "pending" or colored):
                 tx0, tx1 = (self.tray_roi[0], self.tray_roi[2]) if self.tray_roi else (0.0, 1.0)
                 xn = round(max(0.0, min(1.0, (cx - tx0) / max(1e-6, tx1 - tx0))), 3)   # 쟁반 안 가로 위치 0=왼쪽 끝
                 out.append({"label": d["label"], "conf": round(float(d["conf"]), 2), "box": tuple(d["box"]), "xn": xn})
@@ -1345,7 +1425,8 @@ class Runtime:
                               "fresh": ls.get("phase") != "done" or time.monotonic() - ls.get("t", 0) < 5}) if ls else None
             hb = getattr(self, "hand_balls", None) or {"size": None, "balls": []}
             snap["hand_overlay"] = {"size": hb["size"], "palm": list(self.palm_roi),
-                                    "balls": [{"label": b["label"], "conf": round(float(b["conf"]), 2), "box": list(b["box"])}
+                                    "balls": [{"label": b["label"], "conf": round(float(b["conf"]), 2),
+                                               "box": list(b["box"]), "by": b.get("by") or ""}
                                               for b in hb["balls"]],
                                     "tray_here": not (self.tray_slot and self.tray_slot in self.views)}
             snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
@@ -1353,7 +1434,7 @@ class Runtime:
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
                               "running": self._camera_ok(), "infer_ms": round(self.infer_ms)}
             vlm_on = self.task.vlm_active()
-            snap["detector"] = {"name": (f"팀원 vlm_go 의 ask_vlm({self.task.vlm.model}) 이 손 위 판정 · 놓임은 화면 변화로 감지" if vlm_on
+            snap["detector"] = {"name": (f"팀원 vlm_go 의 ask_vlm({self.task.vlm.model}) 이 빨간·파란·초록 공을 각각 보고 색을 정함 · 놓임은 화면 변화로 감지" if vlm_on
                                          else self.detector_info), "yolo": self.yolo is not None,
                                 "labels": list(self.yolo.names.values()) if self.yolo else list(LABELS)}
             snap["samples"] = self._capture_counts() if self.yolo else self.clf.counts()

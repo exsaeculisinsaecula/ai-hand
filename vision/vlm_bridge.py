@@ -3,8 +3,8 @@
 역할
   1. 요청 해석: 대시보드 검색창에 입력한 문장을 VLM 이 이해해 빨간/파란/초록 공 중 하나로 정한다
      (글자만, 사진 없음). 답은 JSON 스키마로 강제한다.
-  2. 손 위 확인: 팀원 vlm_go/vlm_go.py 의 ask_vlm() 을 그대로 불러 씀 — 손 위 사진 + 대상("빨간 공")
-     → {"found": true/false}. true → 로봇 GRIP, false → 로봇 NG (공이 아니면 기다림).
+  2. 손 위 색: 팀원 vlm_go/vlm_go.py 의 ask_vlm() 을 고치지 않고, 빨간 공·파란 공·초록 공에
+     한 번씩 불러 true 인 색을 고른다. 그 색이 요청한 공이면 GRIP, 다른 색이면 NG, 없으면 기다림.
 
 Ollama 가 꺼져 있으면 즉시 단어 규칙(parse_request)·색 규칙으로 진행한다 (화면이 멈추지 않도록).
 연결 상태는 백그라운드에서 10초마다 다시 확인하므로, 실행 중에 Ollama 를 켜도 자동으로 붙는다.
@@ -132,7 +132,8 @@ class VlmBridge:
         self.text_timeout = text_timeout
         self.image_timeout = image_timeout
         self.verify_below = verify_below            # 1.0 = 항상 VLM 이 손 위를 확인, 0 = 끔
-        self._pool = ThreadPoolExecutor(max_workers=1)
+        self._pool = ThreadPoolExecutor(max_workers=1)          # 쥐기 판정 · 문장 이해
+        self._color_pool = ThreadPoolExecutor(max_workers=1)    # 쟁반·화면 색 (쥐기 판정과 줄을 나누되, Ollama 는 한 장씩)
         self._no_think = True
         self.online = True                          # 기본은 연결된 것으로 보고, 모니터가 고친다
         self.model_ready = True
@@ -283,6 +284,36 @@ class VlmBridge:
 
     def submit_team(self, img: np.ndarray, target: str) -> Future:
         return self._pool.submit(self.ask_team, img, target)
+
+    def ask_team_color(self, img: np.ndarray) -> dict:
+        """팀원 ask_vlm 을 빨간 공·파란 공·초록 공에 한 번씩 불러 색을 고른다.
+
+        한 색만 true → 그 색. 전부 false → 공 없음(label None). 둘 이상 true → ambiguous.
+        한 번이라도 응답이 없으면 나머지를 묻지 않고 ok False (그때만 색 규칙으로 대신).
+        """
+        founds: dict[str, bool] = {}
+        seconds = 0.0
+        raws: list[str] = []
+        for label in SUPPORTED:
+            v = self.ask_team(img, label)
+            seconds += float(v.get("seconds") or 0)
+            raws.append(str(v.get("raw") or ""))
+            if v.get("found") is None or not v.get("ok", False):
+                return {"label": None, "founds": founds, "ambiguous": False, "ok": False,
+                        "raw": (v.get("raw") or "응답 없음")[:80], "seconds": round(seconds, 1)}
+            founds[label] = bool(v["found"])
+        trues = [lbl for lbl, found in founds.items() if found]
+        return {"label": trues[0] if len(trues) == 1 else None, "founds": founds,
+                "ambiguous": len(trues) > 1, "ok": True, "raw": " ".join(raws)[:80],
+                "seconds": round(seconds, 1)}
+
+    def submit_colors(self, img: np.ndarray) -> Future:
+        """쥐기 판정용. 화면을 멈추지 않게 백그라운드에서 세 색을 묻는다."""
+        return self._pool.submit(self.ask_team_color, img)
+
+    def submit_colors_bg(self, img: np.ndarray) -> Future:
+        """쟁반·화면 표시용. 쥐기 판정 줄과 따로 돈다."""
+        return self._color_pool.submit(self.ask_team_color, img)
 
     def describe(self, img: np.ndarray) -> dict:
         """사진 → {"fields": {object, color, count, position, state, scene, note}, "seconds", "ok"}"""

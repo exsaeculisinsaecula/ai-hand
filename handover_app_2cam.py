@@ -2,8 +2,8 @@
 
 handover_app.py (웹캠 1대) 는 그대로 두고, 이 파일만 따로 실행합니다. 기존 파일은 고치지 않습니다.
 
-  웹캠 1 (쟁반)  쟁반 위 공(빨강·파랑·초록) → 색 규칙이 요청한 공을 골라 "PICK THIS" 표시
-  웹캠 2 (손)    로봇 손바닥 → VLM(Gemma) found 판정 → 쥐기 / NG  (VLM 이 꺼져 있으면 색 규칙)
+  웹캠 1 (쟁반)  쟁반 위 공(빨강·파랑·초록) → VLM 이 색을 고르고 "PICK THIS" 표시 (VLM 꺼짐이면 색 규칙)
+  웹캠 2 (손)    로봇 손바닥 → 팀원 ask_vlm 이 세 색을 보고 쥐기 / NG  (VLM 이 꺼져 있으면 색 규칙)
 
   python handover_app_2cam.py --hand-camera 1 --tray-camera 2                # 실물
   python3 handover_app_2cam.py --mock --hand-camera 0 --tray-camera 사진.jpg   # 웹캠 1대 + 쟁반은 사진으로 시험
@@ -138,15 +138,18 @@ class Runtime2Cam(one.Runtime):
                 self._tray_latest = []
             elif now - last_infer >= 1.0 / TRAY_FPS:
                 last_infer = now
-                try:                              # 공 YOLO 가 있으면 YOLO, 없으면 색 규칙
+                try:                              # 공 위치: YOLO 또는 색 덩어리. 색 이름: VLM 이 켜져 있으면 팀원 ask_vlm
                     dets = self.tray_yolo.detect(frame) if self.tray_yolo is not None else find_balls(frame)
                 except Exception as exc:
                     self.task._log("ERR", f"쟁반 인식 오류: {exc}")
                     dets = []
+                if self.task.vlm_active():
+                    dets = self._vlm_color_items(frame, dets)
                 fw = frame.shape[1]
                 self._tray_latest = [{"label": d["label"], "conf": round(float(d["conf"]), 2), "box": tuple(d["box"]),
                                       "xn": round((d["box"][0] + d["box"][2] / 2) / fw, 3)}   # 쟁반 화면 안 가로 위치
-                                     for d in dets if d["label"] in YOLO_LABELS and d["conf"] >= TRAY_MIN_CONF]
+                                     for d in dets
+                                     if d["label"] == "pending" or (d["label"] in YOLO_LABELS and d["conf"] >= TRAY_MIN_CONF)]
             with self.lock:                       # 손 카메라가 멈춰 있어도 쟁반 안내는 갱신
                 self.task.update_tray(list(self._tray_latest))
 

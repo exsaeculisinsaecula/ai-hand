@@ -44,6 +44,11 @@ class FakeBridge(VlmBridge):
         f.set_result(self.ask_team(img, target))
         return f
 
+    def submit_colors(self, img):
+        f = Future()
+        f.set_result(self.ask_team_color(img))
+        return f
+
 
 class InterpretTest(unittest.TestCase):
     def test_vlm_interprets_every_request(self):
@@ -98,37 +103,42 @@ class OfflineTest(unittest.TestCase):
 
 
 class CrossCheckTest(unittest.TestCase):
-    """VLM 판정 + 색 규칙 교차 확인: 다르면 VLM 이 한 번 더 (요청한 공이 있나?)"""
+    """손 위 색은 팀원 ask_vlm 을 세 색에 한 번씩 물어 정한다. 색 규칙은 답이 없을 때만."""
     make = None
 
     def setUp(self):
         self.make = VerifyFlowTest.make.__get__(self)
         self.place = VerifyFlowTest.place.__get__(self)
 
-    def test_agree_uses_one_call(self):
+    def test_matching_color_grips_after_three_asks(self):
         task, link, clock = self.make("red")
         self.place(task, clock, label="red")
-        self.assertEqual((task.state, task.vlm.calls), ("GRIP", ["image"]))
-        self.assertEqual(task.snapshot()["decision"]["final"], "쥐기")
+        self.assertEqual((task.state, task.vlm.calls), ("GRIP", ["image", "image", "image"]))
+        d = task.snapshot()["decision"]
+        self.assertEqual((d["final"], d["color"]), ("쥐기", "빨간 공"))
 
-    def test_disagree_triggers_second_look_and_vlm_wins(self):
-        task, link, clock = self.make("blue")                  # 손 위 파랑, 규칙: 빨강 → ask_vlm '빨간 공?' 아니오 → 한 번 더 → 아니오
+    def test_other_color_is_ng_even_if_hue_says_requested(self):
+        task, link, clock = self.make("blue")                  # VLM 은 파란 공. 화면 라벨이 빨강이어도 색은 VLM
         self.place(task, clock, label="red")
-        self.assertEqual(task.vlm.calls, ["image", "image"])
+        self.assertEqual(task.vlm.calls, ["image", "image", "image"])
         self.assertEqual(link.sent[-1], "NG")
         d = task.snapshot()["decision"]
-        self.assertEqual((d["vlm"], d["second"], d["final"]), ("없음", "없음", "NG"))
+        self.assertEqual((d["vlm"], d["color"], d["final"]), ("없음", "파란 공", "NG"))
+        self.assertEqual(task.snapshot()["vlm_last"]["saw"], "파란 공")
 
-    def test_vlm_missed_ball_rescued_by_rule_and_second_look(self):
+    def test_vlm_miss_is_not_overridden_by_hue(self):
         task, link, clock = self.make("red")
         real, n = task.vlm.ask_team, []
-        def first_miss(img, target):                            # 첫 ask_vlm 만 놓침 → 규칙 빨강 → 가까이 한 번 더 → 있음
+
+        def first_miss(img, target):                            # 빨간 공 질문만 놓침 → 세 색 모두 false → 색 규칙으로 쥐지 않음
             n.append(1)
             return {"found": False, "raw": "", "seconds": 1.0, "ok": True} if len(n) == 1 else real(img, target)
+
         task.vlm.ask_team = first_miss
         self.place(task, clock, label="red")
-        self.assertEqual(task.state, "GRIP")
-        self.assertEqual(task.snapshot()["decision"]["second"], "있음")
+        self.assertEqual(task.state, "RECEIVE")
+        self.assertNotIn("GRIP", link.sent)
+        self.assertEqual(task.snapshot()["decision"]["final"], "대기")
 
 
 class GuardTest(unittest.TestCase):
@@ -179,7 +189,7 @@ class VerifyFlowTest(unittest.TestCase):
         task, link, clock = self.make("red")
         self.place(task, clock)
         self.assertEqual(task.state, "GRIP")
-        self.assertEqual(task.vlm.calls, ["image"])
+        self.assertEqual(task.vlm.calls, ["image", "image", "image"])
         self.assertEqual(link.sent[-1], "GRIP")
         self.assertEqual(task.snapshot()["vlm_last"]["saw"], "빨간 공")
 
@@ -199,7 +209,7 @@ class VerifyFlowTest(unittest.TestCase):
 
     def test_cancel_while_vlm_checking(self):
         task, link, clock = self.make("red")
-        task.vlm.submit_team = lambda img, target: Future()      # 응답이 아직 안 옴
+        task.vlm.submit_colors = lambda img: Future()            # 응답이 아직 안 옴
         res = {"label": "red", "confidence": 0.8, "box": (200, 150, 80, 80), "motion": 0.0}
         for _ in range(8):
             clock.t += 0.2
@@ -224,7 +234,7 @@ class VerifyFlowTest(unittest.TestCase):
 
 
 class VlmPalmTest(unittest.TestCase):
-    """VLM 이 손 위 공을 인식 (색 규칙은 VLM 이 답하지 못할 때만)"""
+    """VLM 이 손 위 공 색을 인식 (색 규칙은 VLM 이 답하지 못할 때만)"""
     make = VerifyFlowTest.make
     place = VerifyFlowTest.place
 
@@ -292,6 +302,53 @@ class TrayTest(unittest.TestCase):
         task = HandoverTask(FakeLink(), clock=FakeClock())
         task.update_tray([{"label": "blue", "conf": 0.8, "box": (100, 100, 50, 50)}])
         self.assertIsNone(task.tray["pick"])
+
+    def test_pending_color_waits_without_logging_missing(self):
+        clock, link = FakeClock(), FakeLink()
+        task = HandoverTask(link, clock=clock)
+        task.request("빨간 공 줘")
+        link.rx.append("DONE,OPEN"); task.step(None)
+        task.update_tray([{"label": "pending", "conf": 0, "box": (100, 100, 40, 40)}])
+        self.assertIsNone(task.tray["pick"])
+        self.assertIn("색을 확인하는 중", task.message)
+        self.assertFalse(any("[쟁반]" in l["text"] for l in task.logs))
+
+
+class ColorItemsTest(unittest.TestCase):
+    """화면·쟁반에 그릴 색 이름은 덩어리의 HSV 가 아니라 팀원 ask_vlm 결과"""
+
+    def test_pending_then_team_color(self):
+        import threading
+        from handover_app import Runtime
+        rt = object.__new__(Runtime)
+        rt._color_cache = {}
+        rt._color_pending = set()
+        rt._color_lock = threading.Lock()
+
+        class Task:
+            _vlm_job = None
+            vlm = None
+
+            def vlm_active(self):
+                return True
+
+        class Vlm:
+            def crop(self, frame, box, margin=0.35):
+                return frame
+
+            def submit_colors_bg(self, img):
+                f = Future()
+                f.set_result({"ok": True, "label": "green", "ambiguous": False})
+                return f
+
+        rt.task = Task()
+        rt.task.vlm = Vlm()
+        items = [{"label": "red", "conf": 0.8, "box": (10, 10, 30, 30)}]
+        frame = np.zeros((40, 40, 3), np.uint8)
+        first = rt._vlm_color_items(frame, items)
+        self.assertEqual(first[0]["label"], "pending")          # HSV 빨강을 그대로 쓰지 않음
+        second = rt._vlm_color_items(frame, items)
+        self.assertEqual((second[0]["label"], second[0]["by"]), ("green", "vlm"))
 
 
 class PointTest(unittest.TestCase):
@@ -362,6 +419,34 @@ class TeamCodeImportTest(unittest.TestCase):
             mod.ask_vlm = real
         self.assertEqual((out["found"], seen["target"], seen["model"]), (True, "빨간 공", "gemma3:4b"))
         self.assertIn("'빨간 공'을(를) 찾고 있어", seen["prompt"])            # 팀원 프롬프트 그대로
+
+    def test_color_calls_team_ask_vlm_for_each_color(self):
+        from vision import vlm_bridge
+        mod = vlm_bridge.team_vlm_go()
+        seen = []
+        real = mod.ask_vlm
+
+        def spy(frame, target, model, url, *a, **k):
+            seen.append((target, mod.PROMPT.format(target=target)))
+            return target == "파란 공", '{"found": %s}' % str(target == "파란 공").lower(), 0.1
+
+        mod.ask_vlm = spy
+        try:
+            out = VlmBridge().ask_team_color(np.zeros((10, 10, 3), np.uint8))
+        finally:
+            mod.ask_vlm = real
+        self.assertEqual([t for t, _ in seen], ["빨간 공", "파란 공", "초록 공"])
+        self.assertEqual(out["label"], "blue")
+        self.assertFalse(out["ambiguous"])
+        self.assertIn("'초록 공'을(를) 찾고 있어", seen[2][1])
+
+    def test_two_true_colors_are_ambiguous(self):
+        b = VlmBridge()
+        b.ask_team = lambda img, target: {"found": target in ("red", "green"), "raw": "{}", "seconds": 0.1, "ok": True}
+        out = b.ask_team_color(np.zeros((8, 8, 3), np.uint8))
+        self.assertTrue(out["ambiguous"])
+        self.assertIsNone(out["label"])
+        self.assertEqual(out["founds"], {"red": True, "blue": False, "green": True})
 
     def test_dashboard_installs_team_firmware(self):
         import handover_app
