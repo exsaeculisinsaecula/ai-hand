@@ -2589,9 +2589,9 @@
   .cam-grid[data-split="1"] .tile-tag { display: none; }
   .tile-tag b, .tile-no { font-family: "IBM Plex Mono", Consolas, monospace; color: var(--text); margin-right: 4px; }
   .cam-tile { position: relative; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
-  .cam-tile img { position: absolute; inset: 0 0 44px 0; width: 100%; height: calc(100% - 44px); object-fit: contain; opacity: 0;
+  .cam-tile > .tile-view > img { position: absolute; inset: 0 0 44px 0; width: 100%; height: calc(100% - 44px); object-fit: contain; opacity: 0;
     transition: opacity var(--t-mid) var(--ease); }
-  .cam-tile.has-cam img { opacity: 1; }
+  .cam-tile.has-cam > .tile-view > img { opacity: 1; }
   .tile-empty { position: absolute; inset: 0 0 44px 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
     gap: 4px; color: var(--text-muted); font-size: 14px; text-align: center; padding: 8px; transition: opacity var(--t-mid) var(--ease); }
   .tile-empty b { font-size: 16px; color: var(--text-sec); font-weight: 600; }
@@ -2618,14 +2618,14 @@
     body.handover-mode .cam-grid { aspect-ratio: 4 / 3; flex: none; }
     body.handover-mode .cam-grid[data-split="3"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     body.handover-mode .cam-grid[data-split="3"] > .cam-stage { grid-row: auto; grid-column: 1 / span 2; }
-    .tile-bar { height: 40px; } .cam-tile img, .tile-empty { inset: 0 0 40px 0; height: calc(100% - 40px); }
+    .tile-bar { height: 40px; } .cam-tile > .tile-view > img, .tile-empty { inset: 0 0 40px 0; height: calc(100% - 40px); }
   }
   /* ===== 분할 칸: 1번(손) 카메라와 같은 모양 ===== */
   .cam-tile { display: flex; flex-direction: column; }
   .cam-tile .tile-view { position: relative; flex: 1 1 auto; min-height: 0; background: #fff; }
-  .cam-tile .tile-view img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff;
+  .cam-tile > .tile-view > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff;
     opacity: 0; transition: opacity var(--t-mid) var(--ease); }
-  .cam-tile.has-cam .tile-view img { opacity: 1; }
+  .cam-tile.has-cam > .tile-view > img { opacity: 1; }
   .cam-tile .tile-empty { display: none; }
   .cam-tile .cam-state { inset: 0; gap: 8px; padding: 10px; text-align: center; }
   .cam-tile .cam-state b { font-size: 18px; }
@@ -2640,7 +2640,6 @@
     font-size: 13px; padding: 3px 10px; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); color: var(--text-sec);
     max-width: calc(100% - 150px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cam-grid .cam-live { left: auto; right: 10px; }
-  .cam-grid[data-split="1"] .cam-live { left: 10px; right: auto; }
   .cam-tile.is-tray .tile-tag { border-color: var(--c-work); color: var(--c-work); }
   .cam-tile.is-tray { box-shadow: none; }
   .cam-tile.is-tray .tile-view { box-shadow: inset 0 0 0 2px var(--c-work); }
@@ -2699,6 +2698,26 @@
   .split-ctl .auto-btn { width: auto; padding: 0 10px; margin-right: 12px; margin-left: 0; font-family: inherit; }
   .split-ctl .auto-btn.active { background: var(--c-done); border-color: var(--c-done); color: #fff; }
   .split-ctl .auto-btn.active::before { content: '● '; font-size: 10px; vertical-align: 1px; }
+
+  /* ===== 카메라 창 정리: 칸마다 조작이 있으니 제목줄은 학습 · 자동/분할만 ===== */
+  body.handover-mode #camPickBtn, body.handover-mode #camPowerBtn { display: none !important; }
+  body.handover-mode #cameraWindow .win-titlebar { flex-wrap: nowrap; gap: 10px; }
+  body.handover-mode #cameraWindow .win-subject { display: none; }
+  body.handover-mode #cameraWindow .win-tools { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
+  body.handover-mode #cameraWindow .learn-row { flex-wrap: wrap; gap: 6px; }
+  body.handover-mode #cameraWindow .split-ctl { flex: none; margin: 0 0 0 auto; }
+  body.handover-mode #camWinStatus { display: none; }
+  /* 영상 바깥(레터박스)은 옅은 회색 → 영상 가장자리가 또렷 */
+  body.handover-mode #webcamFeed, .cam-tile > .tile-view > img { background: #ECEBE6 !important; }
+  .cam-grid .tile-view { background: #ECEBE6; }
+  .cam-grid .cam-state { background: #F6F5F1; }
+  /* 이름표(왼쪽 위) · 작동 중(오른쪽 위)이 겹치지 않게 */
+  .cam-grid .cam-live { left: auto !important; right: 10px; top: 10px; }
+  .cam-grid .tile-tag { max-width: calc(100% - 170px); }
+  @media (max-width: 900px) {
+    body.handover-mode #cameraWindow .win-titlebar { flex-wrap: wrap; }
+    body.handover-mode #cameraWindow .split-ctl { margin-left: 0; }
+  }
 </style>
 </head>
 <body>

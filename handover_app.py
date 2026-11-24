@@ -695,6 +695,9 @@ class Runtime:
             if self.auto_cams and (n is None and last is None or n is not None and n != last):
                 try:
                     found = self.probe_cameras()
+                    if n:                                # 카메라 한 대가 번호 두 개로 열리는 경우가 있어 운영체제가 센 수까지만
+                        keep = [i for i in found if i == self.camera_index][:1]
+                        found = keep + [i for i in found if i not in keep][: max(0, n - len(keep))]
                     notes = self.auto_place(found)
                     if notes:
                         self.task._log("SYS", "[카메라 자동] " + " · ".join(notes))
@@ -810,9 +813,11 @@ class Runtime:
         """지금 고른 카메라가 꺼짐 목록에 있으면 열지 않는다."""
         return self.camera_index in self.cam_disabled
 
-    def _open_camera(self):
+    def _open_camera(self, gen: int = 0):
         self._cam_switch = False
         while self.running:
+            if gen != self._cam_gen:                # 새 카메라 스레드가 대신함 → 이 스레드는 열지 않고 끝냄 (같은 카메라를 두 번 여는 것 방지)
+                return None
             if self.camera_off():                   # 꺼 둔 카메라: 열지 않고 켤 때까지 대기
                 self.cam_error = ""
                 self.jpeg = None
@@ -821,11 +826,19 @@ class Runtime:
                 if self._cam_switch:
                     self._cam_switch = False
                 continue
-            cap = cv2.VideoCapture(self.camera_index)
+            idx = self.camera_index
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened() and (gen != self._cam_gen or idx != self.camera_index):
+                cap.release()                       # 여는 사이 다른 스레드가 대신했거나 번호가 바뀜 → 다시
+                if gen != self._cam_gen:
+                    return None
+                continue
             if cap.isOpened():
                 self.cam_error = ""
                 self._cam_opened_t = time.monotonic()
-                self.task._log("SYS", f"USB 웹캠({self.camera_index}번) 연결됨")
+                self._opened_index = idx
+                self._cam_switch = False            # 지금 고른 번호를 열었으니 바꾸기 요청은 처리됨
+                self.task._log("SYS", f"USB 웹캠({idx}번) 연결됨")
                 return cap
             cap.release()
             self.cam_error = f"USB 웹캠({self.camera_index}번)이 연결되지 않았습니다 — 꽂으면 자동으로 연결됩니다"
@@ -834,18 +847,20 @@ class Runtime:
         return None
 
     def _camera_loop(self, gen: int = 0) -> None:
-        cap = self._open_camera()
+        cap = self._open_camera(gen)
         fails = 0
         last = time.perf_counter()
         while self.running and cap is not None:
             if gen != self._cam_gen:                # 감시 장치가 새 스레드를 띄움 → 이 스레드는 정리하고 끝냄
                 cap.release()
                 return
+            if self._cam_switch and getattr(self, "_opened_index", None) == self.camera_index and not self.camera_off():
+                self._cam_switch = False            # 이미 그 번호를 열어 둠 → 다시 열지 않음
             if self._cam_switch or self.camera_off():   # 다른 카메라를 고름 / 이 카메라를 끔
                 cap.release()
                 self.jpeg = None
                 self.fps = 0.0
-                cap = self._open_camera()
+                cap = self._open_camera(gen)
                 fails = 0
                 continue
             ok, frame = cap.read()
@@ -858,7 +873,7 @@ class Runtime:
                     cap.release()
                     self.task._log("SYS", "USB 웹캠 연결이 끊겼습니다 — 다시 연결을 기다립니다")
                     self.jpeg = None
-                    cap = self._open_camera()
+                    cap = self._open_camera(gen)
                     fails = 0
                 time.sleep(0.05)
                 continue
