@@ -32,14 +32,16 @@ class FakeBridge(VlmBridge):
         f.set_result(self.check_part(img))
         return f
 
-    def submit_ball(self, img):
-        f = Future()
-        f.set_result(self.check_ball(img))
-        return f
+    def ask_team(self, img, target):
+        """팀원 vlm_go.ask_vlm 대역: 손 위 공(check_label)이 대상과 같으면 found=true"""
+        self.calls.append("image")
+        if self.fail or self.check_label == "garbage":
+            return {"found": None, "raw": "응답 없음", "seconds": 1.0, "ok": False}
+        return {"found": self.check_label == target, "raw": "{}", "seconds": 1.0, "ok": True}
 
-    def submit_found(self, img, target):
+    def submit_team(self, img, target):
         f = Future()
-        f.set_result(self.check_found(img, target))
+        f.set_result(self.ask_team(img, target))
         return f
 
 
@@ -110,19 +112,21 @@ class CrossCheckTest(unittest.TestCase):
         self.assertEqual(task.snapshot()["decision"]["final"], "쥐기")
 
     def test_disagree_triggers_second_look_and_vlm_wins(self):
-        task, link, clock = self.make("blue")                  # VLM: 파랑, 규칙: 빨강 → 두 번째 확인 '빨간 공?' 아니오
+        task, link, clock = self.make("blue")                  # 손 위 파랑, 규칙: 빨강 → ask_vlm '빨간 공?' 아니오 → 한 번 더 → 아니오
         self.place(task, clock, label="red")
         self.assertEqual(task.vlm.calls, ["image", "image"])
         self.assertEqual(link.sent[-1], "NG")
         d = task.snapshot()["decision"]
-        self.assertEqual((d["vlm"], d["second"], d["final"]), ("파란 공", "없음", "NG"))
+        self.assertEqual((d["vlm"], d["second"], d["final"]), ("없음", "없음", "NG"))
 
     def test_vlm_missed_ball_rescued_by_rule_and_second_look(self):
         task, link, clock = self.make("red")
-        real = task.vlm.check_ball
-        task.vlm.check_ball = lambda img: {"label": None, "empty": True, "raw": "", "seconds": 1.0, "ok": True}
-        self.place(task, clock, label="red")                    # VLM 첫 판정 '없음', 규칙 빨강 → 두 번째 확인 '빨간 공?' 예
-        task.vlm.check_ball = real
+        real, n = task.vlm.ask_team, []
+        def first_miss(img, target):                            # 첫 ask_vlm 만 놓침 → 규칙 빨강 → 가까이 한 번 더 → 있음
+            n.append(1)
+            return {"found": False, "raw": "", "seconds": 1.0, "ok": True} if len(n) == 1 else real(img, target)
+        task.vlm.ask_team = first_miss
+        self.place(task, clock, label="red")
         self.assertEqual(task.state, "GRIP")
         self.assertEqual(task.snapshot()["decision"]["second"], "있음")
 
@@ -195,7 +199,7 @@ class VerifyFlowTest(unittest.TestCase):
 
     def test_cancel_while_vlm_checking(self):
         task, link, clock = self.make("red")
-        task.vlm.submit_ball = lambda img: Future()              # 응답이 아직 안 옴
+        task.vlm.submit_team = lambda img, target: Future()      # 응답이 아직 안 옴
         res = {"label": "red", "confidence": 0.8, "box": (200, 150, 80, 80), "motion": 0.0}
         for _ in range(8):
             clock.t += 0.2
@@ -336,3 +340,41 @@ class PointTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TeamCodeImportTest(unittest.TestCase):
+    """대시보드가 팀원 vlm_go/ 코드를 고치지 않고 그대로 불러 쓰는지"""
+
+    def test_palm_judgement_calls_team_ask_vlm(self):
+        from pathlib import Path
+        from vision import vlm_bridge
+        mod = vlm_bridge.team_vlm_go()
+        self.assertEqual(Path(mod.__file__).resolve(), (Path(__file__).resolve().parents[1] / "vlm_go" / "vlm_go.py").resolve())
+        seen = {}
+        real = mod.ask_vlm
+        def spy(frame, target, model, url, *a, **k):
+            seen.update(target=target, model=model, prompt=mod.PROMPT.format(target=target))
+            return True, '{"found": true}', 0.5
+        mod.ask_vlm = spy
+        try:
+            out = VlmBridge().ask_team(np.zeros((10, 10, 3), np.uint8), "red")
+        finally:
+            mod.ask_vlm = real
+        self.assertEqual((out["found"], seen["target"], seen["model"]), (True, "빨간 공", "gemma3:4b"))
+        self.assertIn("'빨간 공'을(를) 찾고 있어", seen["prompt"])            # 팀원 프롬프트 그대로
+
+    def test_dashboard_installs_team_firmware(self):
+        import handover_app
+        self.assertEqual(handover_app.FIRMWARE.name, "microbit_go.py")
+        self.assertEqual(handover_app.FIRMWARE.parent.name, "vlm_go")
+        self.assertEqual(handover_app.firmware_version(), "5-go")
+
+    def test_team_files_match_delivery(self):
+        """팀원 전달 폴더가 있으면 vlm_go/ 와 한 글자도 다르지 않은지"""
+        from pathlib import Path
+        src = Path.home() / "Documents" / "카카오톡 받은 파일" / "vlm_go_팀원전달" / "vlm_go"
+        if not src.exists():
+            self.skipTest("팀원 전달 폴더 없음")
+        mine = Path(__file__).resolve().parents[1] / "vlm_go"
+        for f in ("vlm_go.py", "microbit_go.py", "README.md", "requirements.txt", "requirements-voice.txt"):
+            self.assertEqual((src / f).read_bytes(), (mine / f).read_bytes(), f)

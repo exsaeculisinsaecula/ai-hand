@@ -17,19 +17,11 @@ import math
 import time
 from typing import Callable
 
-from concurrent.futures import Future
-
 from vision.parts import LABEL_KO, LABELS, parse_request
 
 SUPPORTED_SET = set(LABELS)
 
-
-def _done_future(value):
-    f = Future()
-    f.set_result(value)
-    return f
-
-# 펌웨어(microbit/handover.py v5, 팀 보정값)와 같은 동작 시간 (초, +80ms 여유)
+# 펌웨어(vlm_go/microbit_go.py 5-go, 팀 보정값)와 같은 동작 시간 (초, +80ms 여유)
 PAN_S = 1.58     # 손목 회전 1500ms
 OPEN_S = 0.78    # 펴기 700ms
 GRIP_S = 1.58    # 쥐기 1500ms
@@ -473,37 +465,23 @@ class HandoverTask:
         img = self._palm_image(res)
         if img is None:
             return False                                 # 사진이 없으면 색 규칙 판단대로
-        self._vlm_job = (self.vlm.submit_ball(img), res, "verify")
-        self._enter("VERIFY", "VLM이 손 위의 공을 확인하는 중", "accent")
+        self._vlm_job = (self.vlm.submit_team(img, self.target), res, "verify")
+        self._enter("VERIFY", f"VLM(팀 vlm_go)이 손 위에 {LABEL_KO[self.target]}이 있는지 확인하는 중", "accent")
         return True
 
-    def _note_decision(self, v: dict, rule, rule_conf: float, second) -> None:
-        saw = LABEL_KO[v["label"]] if v.get("label") else ("없음" if v.get("empty") else "모름")
-        final = ("쥐기" if v.get("label") == self.target else "NG" if v.get("label") else "대기") if v.get("ok") else "규칙"
-        self.last_decision = {"vlm": saw, "rule": LABEL_KO.get(rule, "-") if rule else "-",
+    def _note_decision(self, found, rule, rule_conf: float, second, final: str, seconds) -> None:
+        self.last_decision = {"vlm": "있음" if found else "없음" if found is False else "응답 없음",
+                              "rule": LABEL_KO.get(rule, "-") if rule else "-",
                               "rule_conf": round(rule_conf, 2) if rule else None,
-                              "second": second, "final": final, "seconds": v.get("seconds"),
+                              "second": second, "final": final, "seconds": seconds,
                               "target": LABEL_KO.get(self.target or "", ""), "time": time.strftime("%H:%M:%S")}
 
-    def _decide_after_second(self, res: dict, first: dict, v2: dict) -> None:
-        """두 번째 확인(요청한 공이 있나?)으로 최종 결정. 최종 판단은 언제나 VLM."""
-        v1, rule = first.get("v", {}), first.get("rule")
-        name = LABEL_KO.get(self.target or "", "공")
-        found = v2.get("found")
-        if found is True:                                # 요청한 공이 맞다 → 쥐기
-            final = {"label": self.target, "empty": False, "ok": True, "seconds": v1.get("seconds", 0), "raw": "교차 확인: 있음"}
-            why = "두 번째 확인: 요청한 공 있음"
-        elif found is False:                             # 요청한 공이 아니다
-            other = v1.get("label") if v1.get("label") and v1.get("label") != self.target else \
-                (rule if rule and rule != self.target else None)
-            final = {"label": other, "empty": other is None, "ok": True, "seconds": v1.get("seconds", 0), "raw": "교차 확인: 없음"}
-            why = "두 번째 확인: 요청한 공 없음"
-        else:                                            # 두 번째 확인 실패 → 첫 VLM 판정대로
-            final, why = v1, "두 번째 확인 응답 없음 — 첫 판정대로"
-        self._note_decision(final, rule, first.get("rule_conf", 0.0), "있음" if found else "없음" if found is False else "-")
-        self._log("SYS", f"[교차 확인] {why} ({v2.get('seconds', 0)}s)")
-        self._vlm_job = (_done_future(final), res, "verify-final")
-        self._vlm_result()
+    def _ball_image(self, res: dict):
+        """색 규칙이 찾은 공 상자 둘레를 가까이 잘라 (두 번째 확인용). 없으면 손 영역 사진"""
+        frame = self.frame_source() if self.frame_source else None
+        box = res.get("rule_box") if res else None
+        img = self.vlm.crop(frame, box, margin=1.2) if frame is not None and box else None
+        return img if img is not None else self._palm_image(res)
 
     def _empty_check_vlm(self, res: dict | None, now: float) -> None:
         """내려놓은 뒤: 손이 정면으로 돌아오면(1.5초) 손 위 사진을 VLM 에 한 번 보여 줘 비었는지 확인"""
@@ -521,87 +499,93 @@ class HandoverTask:
         if img is None:
             self._empty_check(None, now)
             return
-        self._vlm_job = (self.vlm.submit_ball(img), None, "empty")
+        self._vlm_job = (self.vlm.submit_team(img, self.target), None, "empty")
         self.message = "VLM이 손이 비었는지 확인하는 중"
 
     def _vlm_result(self) -> None:
+        """팀원 ask_vlm 의 found 로 판정. 색 규칙은 교차 확인만 (다르면 공을 가까이 잘라 ask_vlm 한 번 더)."""
         fut, res, kind = self._vlm_job
         if not fut.done():
             return
         self._vlm_job = None
-        if kind == "verify-final":                       # 교차 확인을 거친 최종 판정 → 아래 일반 처리로
-            kind = "final"
         try:
             v = fut.result()
         except Exception as exc:
-            v = {"label": None, "empty": False, "raw": str(exc), "seconds": 0, "ok": False}
+            v = {"found": None, "raw": str(exc), "seconds": 0, "ok": False}
         name = LABEL_KO.get(self.target or "", "공")
         st = self.vlm.stats
-        saw = LABEL_KO[v["label"]] if v.get("label") else ("없음" if v.get("empty") else "모름")
-        self.last_vlm = {"kind": kind, "label": v.get("label"), "empty": v.get("empty"), "saw": saw,
-                         "raw": v["raw"], "seconds": v["seconds"], "target": self.target}
+        found = v.get("found")
         if kind == "empty":                              # 내려놓은 뒤 손 빔 확인
-            if v.get("empty"):
-                self._log("SYS", f"[VLM 확인] 내려놓은 뒤 손 위: 없음 ({v['seconds']}s)")
+            self.last_vlm = {"kind": "empty", "found": found, "label": self.target if found else None,
+                             "saw": name if found else "없음", "raw": v["raw"], "seconds": v["seconds"], "target": self.target}
+            if found is False:
+                self._log("SYS", f"[VLM 확인] 내려놓은 뒤 손 위 {name}: 없음 ({v['seconds']}s)")
                 self._finish(True, "· VLM 손 비었음 확인")
-            elif v.get("label"):
-                self._log("SYS", f"[VLM 확인] 내려놓은 뒤 손 위: {saw} ({v['seconds']}s)")
-                self._finish(False, f"VLM: 내려놓은 뒤에도 손에 {saw}이 보입니다")
+            elif found:
+                self._log("SYS", f"[VLM 확인] 내려놓은 뒤 손 위 {name}: 있음 ({v['seconds']}s)")
+                self._finish(False, f"VLM: 내려놓은 뒤에도 손에 {name}이 보입니다")
             else:
                 st["check_fail"] += 1
                 self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 화면 변화로 판단")
                 self._empty_check(None, self.clock() + self.empty_check_s)
             return
-        if kind == "second":                             # 규칙과 달라서 한 번 더 본 결과 (예/아니오)
-            first = self._first_look or {}
-            self._first_look = None
-            return self._decide_after_second(res, first, v)
-        if kind == "final":
-            rule, rule_conf = None, 0.0
-        else:
-            rule, rule_conf = res.get("rule_label"), float(res.get("rule_conf") or 0.0)
-        if rule is None and res.get("label") in SUPPORTED_SET:
-            rule, rule_conf = res["label"], float(res.get("confidence") or 0.0)
-        rule_ok = kind != "final" and rule in SUPPORTED_SET and rule_conf >= self.rule_min_conf
-        agree = (v.get("label") == rule) if rule_ok else True        # 규칙이 자신 없으면 VLM 만
-        if v.get("ok") and not agree and self.target:
-            img = self._palm_image(res)
-            if img is not None:                          # VLM 과 규칙이 다름 → VLM 이 요청한 공이 있는지 한 번 더 (예/아니오)
-                self._first_look = {"v": v, "rule": rule, "rule_conf": rule_conf}
-                self._vlm_job = (self.vlm.submit_found(img, self.target), res, "second")
-                self._log("SYS", f"[교차 확인] VLM {saw} · 규칙 {LABEL_KO[rule]} {rule_conf:.2f} — 서로 달라 VLM 이 한 번 더 확인")
-                self.message = "VLM 과 규칙의 판단이 달라 VLM 이 한 번 더 확인하는 중"
-                return
-        if kind != "final":
-            self._note_decision(v, rule if rule_ok else None, rule_conf, None)
-        if v.get("label") == self.target:
+        first = self._first_look if kind == "second" else None
+        self._first_look = None
+        src = first["res"] if first else res
+        rule, rule_conf = src.get("rule_label"), float(src.get("rule_conf") or 0.0)
+        if rule is None and src.get("label") in SUPPORTED_SET:
+            rule, rule_conf = src["label"], float(src.get("confidence") or 0.0)
+        rule_ok = rule in SUPPORTED_SET and rule_conf >= self.rule_min_conf
+        if found is None:                                # VLM 응답 없음 → 색 규칙으로 대신
+            st["check_fail"] += 1
+            self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 색 규칙으로 판단")
+            self._note_decision(None, rule if rule_ok else None, rule_conf, None, "규칙", v["seconds"])
+            self._decide_by_rule(src, " (VLM 응답 없음 · 색 규칙)")
+            return
+        if kind == "verify" and self.target:
+            disagree = (found and rule_ok and rule != self.target) or (not found and rule_ok and rule == self.target)
+            if disagree:                                 # 색 규칙과 다름 → 공만 가까이 잘라 ask_vlm 한 번 더
+                img = self._ball_image(src)
+                if img is not None:
+                    self._first_look = {"v": v, "res": src}
+                    self._vlm_job = (self.vlm.submit_team(img, self.target), src, "second")
+                    self._log("SYS", f"[교차 확인] VLM {'있음' if found else '없음'} · 규칙 {LABEL_KO[rule]} {rule_conf:.2f}"
+                                     " — 서로 달라 공을 가까이 보고 VLM 이 한 번 더 확인")
+                    self.message = "VLM 과 규칙의 판단이 달라 VLM 이 한 번 더 확인하는 중"
+                    return
+        second = ("있음" if found else "없음") if first else None
+        other = rule if (rule_ok and rule != self.target) else None
+        saw = name if found else (LABEL_KO[other] if other else "없음")
+        self.last_vlm = {"kind": "verify", "found": found, "label": self.target if found else other, "saw": saw,
+                         "raw": v["raw"], "seconds": v["seconds"], "target": self.target}
+        if found:
             st["check_agree"] += 1
-            self._log("SYS", f"[VLM 확인] 손 위: {saw} ({v['seconds']}s) — 요청과 같음 → 로봇에 GRIP 전송")
+            self._note_decision(True, rule if rule_ok else None, rule_conf, second, "쥐기", v["seconds"])
+            self._log("SYS", f"[VLM 확인] 손 위 {name}: 있음 → found=true ({v['seconds']}s) — 로봇에 GRIP 전송")
             self._enter("GRIP", f"VLM 확인: {name} 맞음 — 쥐는 중", "pass")
             self._send("GRIP")
             if self.on_grip_approved is not None:        # 쥐고 내려놓는 동안(약 5초) 자세한 관찰 — 판정을 늦추지 않음
-                img = self._palm_image(res)
+                img = self._palm_image(src)
                 if img is not None:
                     self.on_grip_approved(img)
             return
-        if v.get("label"):
+        if rule_ok or src.get("label") in SUPPORTED_SET:  # 색 있는 공이 놓였는데 요청한 공은 아님 → NG
             st["check_disagree"] += 1
             self.vlm_blocked += 1
             self.reject_count += 1
-            self._log("SYS", f"[VLM 확인] 손 위: {saw} ({v['seconds']}s) — 요청({name})과 다름 → 로봇에 NG 전송")
-            self._enter("VERIFY", f"VLM 확인: 손 위의 공은 {saw}입니다 — {name}을 주십시오", "warn")
+            self._note_decision(False, rule if rule_ok else None, rule_conf, second, "NG", v["seconds"])
+            what = f"손 위의 공은 {saw}입니다" if other else "요청한 공이 아닙니다"
+            self._log("SYS", f"[VLM 확인] 손 위 {name}: 없음 → found=false ({v['seconds']}s) — {what} → 로봇에 NG 전송")
+            self._enter("VERIFY", f"VLM 확인: {what} — {name}을 주십시오", "warn")
             self._send("NG")
             return
-        if v.get("empty"):                               # 공이 아닌 것(사람 손 등)이 놓였거나 공이 안 보임
-            self._log("SYS", f"[VLM 확인] 손 위: 공 없음 ({v['seconds']}s) — 계속 기다림")
-            self._enter("RECEIVE", f"VLM: 손 위에 공이 보이지 않습니다 — {name}을 손바닥에 올려 주십시오", "warn")
-            self._reset_detection()
-            self._vlm_retry_at = self.clock() + 2.5
-            self.rebaseline = True                       # 지금 화면을 새 '빈 손' 기준으로 → 바뀐 배경 때문에 계속 묻지 않음
-            return
-        st["check_fail"] += 1                           # VLM 응답 없음 → 색 규칙으로 대신
-        self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 색 규칙으로 판단")
-        self._decide_by_rule(res, " (VLM 응답 없음 · 색 규칙)")
+        # 색 있는 공이 안 보임 (사람 손 등) → 쥐지도 NG 하지도 않고 기다림
+        self._note_decision(False, None, 0.0, second, "대기", v["seconds"])
+        self._log("SYS", f"[VLM 확인] 손 위 {name}: 없음 ({v['seconds']}s) — 공이 아닌 것 · 계속 기다림")
+        self._enter("RECEIVE", f"VLM: 손 위에 {name}이 보이지 않습니다 — {name}을 손바닥에 올려 주십시오", "warn")
+        self._reset_detection()
+        self._vlm_retry_at = self.clock() + 2.5
+        self.rebaseline = True                           # 지금 화면을 새 '빈 손' 기준으로 → 바뀐 배경 때문에 계속 묻지 않음
 
     def _empty_check(self, res: dict | None, now: float) -> None:
         if res is not None:

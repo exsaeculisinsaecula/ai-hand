@@ -16,14 +16,25 @@
 ## 2. VLM 연동 (2026-11-24 적용 — 팀 vlm-go 반영)
 출처: https://github.com/jihustar12-design/vlm-go (`vlm_go.py`, `microbit_go.py`, 2026-11-22)
 
+### 팀원 코드를 그대로 쓰는 곳 (2026-11-24 확인)
+| 무엇 | 팀원 코드 | 대시보드에서 |
+|---|---|---|
+| 손 위 공 판정 VLM | `vlm_go/vlm_go.py` `ask_vlm` · `PROMPT` · `SCHEMA` · `parse_found` | 그대로 불러 씀 (`vision/vlm_bridge.py` `team_vlm_go()`) |
+| 음성 인식 | `vlm_go/vlm_go.py` `Voice` (Whisper small) | 그대로 불러 씀 (`handover_app.py` `_team_vlm_go()`) |
+| micro:bit 펌웨어 | `vlm_go/microbit_go.py` (5-go) | 그대로 설치 (`handover_app.py` `FIRMWARE`) |
+| 문장 이해 · VLM 관찰 | (팀원 코드에 없음) | 대시보드 기능 — 같은 Gemma 사용 |
+- `vlm_go/` 는 팀원 전달본과 한 글자도 다르지 않음 (`tests/test_vlm_bridge.py` `TeamCodeImportTest` 가 확인).
+- GitHub `jihustar12-design/vlm-go` 와 카카오톡 전달본: VLM 부분(프롬프트·스키마·parse_found·대상 추출)과 펌웨어는 같고,
+  전달본은 기다리는 한도(120→300초) · 음성 입력 · 카메라 고르기가 추가된 새 버전 → 전달본을 씀.
+
 ### 손 위 공 인식 = VLM (2026-11-24 변경)
 | 단계 | 누가 판단 |
 |---|---|
 | 공이 놓였는지 | **화면 변화** (`detect_change`: 손을 편 직후의 빈 손 사진과 달라진 덩어리 + 1초 정지) — 색과 무관 |
-| 어떤 공인지 → 쥐기/NG | **VLM** `check_ball`: "가장 눈에 띄는 공의 색 / 없음" (실제 Gemma 비교에서 5/5, 다른 문장들은 빨간 공을 놓침) |
+| 요청한 공인지 → 쥐기/NG | **팀원 `vlm_go/vlm_go.py` 의 `ask_vlm()` 을 고치지 않고 그대로 불러 씀** (`vision/vlm_bridge.py` `ask_team`: importlib 로 파일을 불러 같은 프롬프트·스키마·`parse_found`·gemma3:4b). found=true → GRIP, false → 색 있는 공이면 NG / 공이 아니면 기다림. 이 PC 실제 Gemma: 12/12 |
 | VLM 이 '없음' | 쥐지도 NG 하지도 않고 계속 기다림 (2.5초 뒤 다시 확인) |
 | 내려놓은 뒤 손 빔 확인 | **VLM** (`_empty_check_vlm`) |
-| 규칙 교차 확인 | VLM 판정과 색 규칙(점수 0.6 이상)이 다르면 VLM 이 "요청한 공이 있나?"(예/아니오)를 한 번 더 → 그 답으로 최종 결정. 최종 판단은 언제나 VLM (`_decide_after_second`) |
+| 규칙 교차 확인 | `ask_vlm` 판단과 색 규칙(점수 0.6 이상)이 다르면, 색 규칙이 찾은 공만 가까이 잘라 `ask_vlm` 을 한 번 더 → 그 답으로 최종 결정. 최종 판단은 언제나 VLM |
 | 색 규칙 단독 | Ollama 가 꺼졌거나 VLM 이 답하지 못한 그 한 번만 (화면·로그에 표시) |
 | 손 자동 찾기 (숨김) | 실물에서 쥐는 자리를 정확히 못 잡아 버튼을 숨기고, 쥘 자리는 화면 가운데 고정 사각형 (`DEFAULT_ROI = (0.30, 0.22, 0.70, 0.78)`, [손 영역]으로 직접 바꿀 수 있음). 코드는 남겨 둠 — [손 자동 찾기]: 손을 폈다·쥐었다·폈다 하며 찍은 사진 차이 = 손가락이 움직인 자리 (`hand_zone_from_motion`) → VLM 이 "로봇 손" 인지 예/아니오 → 맞으면 손 영역으로. Gemma 에게 좌표를 직접 물으면 틀려서(격자 0칸, 상자 어긋남) 이 방식을 씀 |
 | VLM 관찰 | 쥐기 승인 직후 자동 + 칸의 [관찰] 버튼: 물체·색·개수·위치·상태·주변·메모 (약 2~3초, **판정에는 안 씀** — 넓은 화면의 주변 설명은 틀릴 수 있음) |
@@ -88,16 +99,15 @@ python handover_app.py              # 대시보드가 Ollama 를 자동으로 �
 - `--mock` 으로 켜면 헤더에 "모의 로봇" 이 뜸. 실물 상태를 보려면 `--mock` 없이 실행 (`run_windows.bat`).
 
 ### 펌웨어 · vlm_go.py
-- 팀 `microbit_go.py` 의 `GO` 명령(손가락 접기 → 3초 → 펴기)을 팀 펌웨어 `microbit/handover.py` 에 합쳤습니다 (`FW_VERSION = "6"`).
-  예전에는 대시보드(v5)와 vlm_go(5-go)가 서로 펌웨어를 다시 설치했지만, 이제 한 펌웨어로 둘 다 씁니다.
-  `handover_app.py` 를 실행하면 v6 가 자동 설치됩니다.
+- **펌웨어 = 팀원 `vlm_go/microbit_go.py` 그대로 (5-go, 팀 펌웨어 + GO 명령)**. 대시보드도 이 파일을 설치하므로
+  대시보드와 vlm_go.py 가 같은 펌웨어를 씀 (서로 다시 설치하지 않음). 예전에 버전만 바꿔 만든 `microbit/handover.py`(v6)는 지웠습니다.
 - **`vlm_go/` (팀원 전달본, 2026-11-24 — 고치지 않고 그대로 넣음)**: 대시보드 없이 "보이면 GO" 를 시험하는 팀 도구.
   글자 입력 + **음성 입력**(Enter → 4초 녹음 → faster-whisper `small`, 한국어, 노트북 안에서). 자세한 사용법은 `vlm_go/README.md`.
   ```powershell
   pip install -r vlm_go/requirements.txt -r vlm_go/requirements-voice.txt
   cd vlm_go
   python vlm_go.py --dry --camera 0                 # 판단만 (Enter = 음성, 글자 입력도 됨)
-  python vlm_go.py --install                        # 팀원 펌웨어(5-go) 설치 → 대시보드를 다시 켜면 v6 로 자동 복구
+  python vlm_go.py --install                        # 팀원 펌웨어(5-go) 설치 (대시보드도 같은 펌웨어)
   python vlm_go.py --camera 0                       # 보이면 GO → 손 쥐었다 폄
   ```
   - 2026-11-24 이 PC 시험: 글자 입력 · 음성(Whisper 가 문장을 그대로 받아씀, 1.4초) · micro:bit 자동 탐색(COM4) · `--install` · 실제 로봇 GO(`DONE,GO`) 모두 통과.
@@ -129,6 +139,6 @@ python handover_app.py              # 대시보드가 Ollama 를 자동으로 �
 
 ## 4. 확인 방법
 ```powershell
-python -m unittest discover -s tests            # 140개 (팀 test 이미지가 없으면 2개 건너뜀)
+python -m unittest discover -s tests            # 143개 (팀 test 이미지가 없으면 2개 건너뜀)
 python handover_app.py --mock                   # 로봇 없이 대시보드 흐름 확인 → http://127.0.0.1:8090/index.html
 ```

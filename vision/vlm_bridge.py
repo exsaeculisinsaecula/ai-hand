@@ -3,8 +3,8 @@
 역할
   1. 요청 해석: 대시보드 검색창에 입력한 문장을 VLM 이 이해해 빨간/파란/초록 공 중 하나로 정한다
      (글자만, 사진 없음). 답은 JSON 스키마로 강제한다.
-  2. 손 위 확인 (팀 vlm-go 방식): 손 영역에 공이 멈추면 그 사진과 대상("빨간 공")을 VLM 에 보여 주고
-     {"found": true/false} 만 받는다. true → 로봇 GRIP, false → 로봇 NG.
+  2. 손 위 확인: 팀원 vlm_go/vlm_go.py 의 ask_vlm() 을 그대로 불러 씀 — 손 위 사진 + 대상("빨간 공")
+     → {"found": true/false}. true → 로봇 GRIP, false → 로봇 NG (공이 아니면 기다림).
 
 Ollama 가 꺼져 있으면 즉시 단어 규칙(parse_request)·색 규칙으로 진행한다 (화면이 멈추지 않도록).
 연결 상태는 백그라운드에서 10초마다 다시 확인하므로, 실행 중에 Ollama 를 켜도 자동으로 붙는다.
@@ -18,6 +18,7 @@ import base64
 from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import re
+from pathlib import Path
 import threading
 import time
 import urllib.error
@@ -49,16 +50,22 @@ INTERPRET_PROMPT = """너는 공 전달 로봇의 요청 해석기다. 작업자
 - 목록에 없는 색(노랑 등), 두 가지 이상을 동시에 요구, 공과 무관한 말, 어느 쪽인지 정할 수 없으면 "모름".
 JSON 으로만 답한다: {{"part": "{names} / 모름 중 하나", "reason": "짧은 근거"}}"""
 
-# 팀 vlm-go(jihustar12-design/vlm-go) 의 단호한 프롬프트 — 답은 found 하나뿐
-FOUND_PROMPT = ("사용자가 '{target}'을(를) 찾고 있어. 이 사진 안에 {target}이(가) 명확하게 있으면 "
-                "오직 {{\"found\": true}}라고 대답하고, 없거나 헷갈리면 {{\"found\": false}}라고만 대답해. "
-                "다른 말은 절대 하지 마.")
-FOUND_SCHEMA = {"type": "object", "properties": {"found": {"type": "boolean"}}, "required": ["found"]}
+# 손 위 공 판정은 팀원 vlm_go/vlm_go.py 의 ask_vlm() 을 고치지 않고 그대로 불러 씀 (프롬프트 · 스키마 · parse_found 포함)
+TEAM_VLM_GO = Path(__file__).resolve().parents[1] / "vlm_go" / "vlm_go.py"
+_team_mod = None
 
-# 손 위 공 인식: 어떤 공인지(또는 없음)를 VLM 이 직접 고른다.
-# 실제 Gemma 3 4B 비교 (2026-11-24): 이 문장 5/5, "손 위에 공이 있나→색" 3/5, 영어 4/5 (빨간 공을 '없음'으로 놓침)
-BALL_PROMPT = "사진에서 가장 눈에 띄는 공의 색을 고른다. 빨간색·파란색·초록색 공이 보이지 않으면 없음."
-BALL_COLORS = {"빨간색": "red", "파란색": "blue", "초록색": "green"}
+
+def team_vlm_go():
+    """팀원 vlm_go.py 를 모듈로 불러옴 (한 번만). 파일은 건드리지 않음."""
+    global _team_mod
+    if _team_mod is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("team_vlm_go", TEAM_VLM_GO)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _team_mod = mod
+    return _team_mod
+
 
 # 여러 정보를 한 번에 관찰 (판정에는 쓰지 않고 화면 표시용, Gemma 3 4B 약 2~2.5초)
 DESCRIBE_PROMPT = ("사진은 로봇 손 부분을 찍은 것이다. 보이는 것을 짧게 관찰해 JSON 으로만 답한다. "
@@ -259,46 +266,23 @@ class VlmBridge:
         c = frame[int(max(0, cy - half)):int(min(H, cy + half)), int(max(0, cx - half)):int(min(W, cx + half))]
         return cv2.resize(c, (side, side), interpolation=cv2.INTER_CUBIC) if c.size else None
 
-    def check_found(self, img: np.ndarray, target: str) -> dict:
-        """팀 vlm-go 방식: 사진 + 대상 → {"found": True/False/None, "raw", "seconds", "ok"}"""
+    def ask_team(self, img: np.ndarray, target: str) -> dict:
+        """팀원 vlm_go.ask_vlm(사진, 대상, 모델, 주소) 그대로 → {"found": True/False/None, "raw", "seconds", "ok"}
+        (Ollama 에 연결하지 못하면 팀원 코드가 sys.exit 를 부르므로 그것만 받아서 '응답 없음' 으로)"""
         self.stats["check_calls"] += 1
         name = LABEL_KO.get(target, target)
         t0 = time.monotonic()
         try:
-            h, w = img.shape[:2]
-            if max(h, w) > 1024:
-                s = 1024 / max(h, w)
-                img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
-            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            raw = self._chat(FOUND_PROMPT.format(target=name), [base64.b64encode(buf.tobytes()).decode()],
-                             timeout=self.image_timeout, schema=FOUND_SCHEMA)
-            found = parse_found(raw)
+            found, raw, dt = team_vlm_go().ask_vlm(img, name, self.model, self.url)
+            return {"found": bool(found), "raw": str(raw).strip()[:80], "seconds": round(dt, 1), "ok": True}
+        except SystemExit as exc:
+            self.online = False
+            return {"found": None, "raw": str(exc)[:80], "seconds": round(time.monotonic() - t0, 1), "ok": False}
         except Exception as exc:
-            raw, found = f"오류: {exc.__class__.__name__}", None
-        return {"found": found, "raw": raw.strip()[:80], "seconds": round(time.monotonic() - t0, 1),
-                "ok": found is not None}
+            return {"found": None, "raw": f"오류: {exc.__class__.__name__}", "seconds": round(time.monotonic() - t0, 1), "ok": False}
 
-    def check_ball(self, img: np.ndarray) -> dict:
-        """손 위 사진 → {"label": red/blue/green/None, "empty": 공 없음 여부, "raw", "seconds", "ok"}"""
-        self.stats["check_calls"] += 1
-        schema = {"type": "object", "properties": {"ball": {"type": "string", "enum": list(BALL_COLORS) + ["없음"]}},
-                  "required": ["ball"]}
-        t0 = time.monotonic()
-        try:
-            h, w = img.shape[:2]
-            if max(h, w) > 1024:
-                s = 1024 / max(h, w)
-                img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
-            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
-            raw = self._chat(BALL_PROMPT, [base64.b64encode(buf.tobytes()).decode()],
-                             timeout=self.image_timeout, schema=schema)
-            got = str(parse_json(raw).get("ball", "")).strip()
-        except Exception as exc:
-            raw, got = f"오류: {exc.__class__.__name__}", ""
-        label = BALL_COLORS.get(got)
-        empty = got == "없음"
-        return {"label": label, "empty": empty, "raw": raw.strip()[:80],
-                "seconds": round(time.monotonic() - t0, 1), "ok": label is not None or empty}
+    def submit_team(self, img: np.ndarray, target: str) -> Future:
+        return self._pool.submit(self.ask_team, img, target)
 
     def describe(self, img: np.ndarray) -> dict:
         """사진 → {"fields": {object, color, count, position, state, scene, note}, "seconds", "ok"}"""
@@ -321,12 +305,6 @@ class VlmBridge:
 
     def submit_describe(self, img: np.ndarray) -> Future:
         return self._pool.submit(self.describe, img)
-
-    def submit_ball(self, img: np.ndarray) -> Future:
-        return self._pool.submit(self.check_ball, img)
-
-    def submit_found(self, img: np.ndarray, target: str) -> Future:
-        return self._pool.submit(self.check_found, img, target)
 
     def check_part(self, img: np.ndarray) -> dict:
         """(vlm_eval.py 용) 사진 → {"label": red/blue/green/None, "seen", "seconds", "ok"}"""

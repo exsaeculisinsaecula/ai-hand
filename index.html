@@ -5282,8 +5282,8 @@
   // ===== 판정 방식 (알람 바로 위): VLM 이 최종 판정 · 규칙은 교차 확인 =====
   const JUDGE_STEPS = [
     ['detect', '놓임 감지', '손 영역이 빈 손 사진과 달라지고 1초 멈추면 → VLM 에게 물음', '규칙'],
-    ['vlm', 'VLM 판정', 'Gemma 가 손 위 사진을 보고 빨강 · 파랑 · 초록 · 없음 중 하나를 고름', 'VLM'],
-    ['rule', '규칙 교차 확인', '색 규칙(HSV)과 비교 · 다르면 VLM 이 "요청한 공이 있나?" 를 한 번 더 확인', '규칙 → VLM'],
+    ['vlm', 'VLM 판정', '팀원 vlm_go 의 ask_vlm 을 그대로 호출 — 손 위 사진에 요청한 공이 있나? → found true / false', 'VLM'],
+    ['rule', '규칙 교차 확인', '색 규칙(HSV)과 다르면 공만 가까이 잘라 ask_vlm 을 한 번 더 — 최종 판단은 VLM', '규칙 → VLM'],
     ['act', '로봇 신호', '요청한 공이면 GRIP · 다른 공이면 NG · 없으면 기다림 · 내려놓은 뒤 손 빔도 VLM 이 확인', 'VLM'],
   ];
   function buildJudgePanel() {
@@ -5316,7 +5316,7 @@
     buildJudgePanel();
     const vOn = snap.vlm && snap.vlm.online;
     document.getElementById('jpMode').textContent = vOn
-      ? `모든 판정은 VLM(${snap.vlm.model}) 이 내리고, 규칙은 놓임 감지와 교차 확인만 합니다`
+      ? `손 위 판정은 팀원 vlm_go 의 ask_vlm(${snap.vlm.model}) 그대로 · 규칙은 놓임 감지와 교차 확인만 · 문장 이해와 관찰은 대시보드 기능`
       : 'VLM 꺼짐 — 지금은 색 규칙만으로 판정합니다 (Ollama 를 켜면 자동으로 VLM 판정)';
     document.getElementById('judgePanel').classList.toggle('vlm-off', !vOn);
     const step = snap.vlm_step === 'second' ? 'rule'

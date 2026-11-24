@@ -31,7 +31,7 @@ from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts
 ROOT = Path(__file__).resolve().parent
 
 
-FIRMWARE = ROOT / "microbit" / "handover.py"
+FIRMWARE = ROOT / "vlm_go" / "microbit_go.py"   # 팀원 펌웨어(5-go, GO 포함) 그대로 — vlm_go.py 와 같은 펌웨어라 서로 다시 설치하지 않음
 
 
 def firmware_version() -> str:
@@ -906,7 +906,7 @@ class Runtime:
                 h, w = f_open.shape[:2]
                 gx, gy = bw * 0.35, bh * 0.35
                 crop = f_open[int(max(0, by - gy)):int(min(h, by + bh + gy)), int(max(0, bx - gx)):int(min(w, bx + bw + gx))]
-                v = vlm.check_found(crop, "로봇 손") if crop.size else {"found": None, "seconds": 0}
+                v = vlm.ask_team(crop, "로봇 손") if crop.size else {"found": None, "seconds": 0}
                 if v["found"] is False:
                     self.locate_status = {"phase": "fail", "msg": "VLM: 찾은 자리가 로봇 손이 아닙니다 — 적용하지 않음", "zone": zone}
                     log("SYS", f"[손 자동 찾기] 움직임 자리 {zone} — VLM 이 로봇 손이 아니라고 판단 ({v['seconds']}s), 적용 안 함")
@@ -1138,6 +1138,7 @@ class Runtime:
             if self.yolo is None:
                 d["rule_label"] = rule.label            # 색 규칙: VLM 교차 확인 · VLM 이 답하지 못할 때 대신
                 d["rule_conf"] = round(float(rule.confidence), 2)
+                d["rule_box"] = list(rule.box) if rule.box else None
             tray_items = self._tray_items(frame, dets)
             px0, py0, px1, py1 = self.palm_roi
             mx, my = (px1 - px0) * 0.15, (py1 - py0) * 0.15
@@ -1352,7 +1353,7 @@ class Runtime:
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
                               "running": self._camera_ok(), "infer_ms": round(self.infer_ms)}
             vlm_on = self.task.vlm_active()
-            snap["detector"] = {"name": (f"VLM {self.task.vlm.model} 이 손 위 공을 판정 · 놓임은 화면 변화로 감지" if vlm_on
+            snap["detector"] = {"name": (f"팀원 vlm_go 의 ask_vlm({self.task.vlm.model}) 이 손 위 판정 · 놓임은 화면 변화로 감지" if vlm_on
                                          else self.detector_info), "yolo": self.yolo is not None,
                                 "labels": list(self.yolo.names.values()) if self.yolo else list(LABELS)}
             snap["samples"] = self._capture_counts() if self.yolo else self.clf.counts()
