@@ -2718,6 +2718,20 @@
     body.handover-mode #cameraWindow .win-titlebar { flex-wrap: wrap; }
     body.handover-mode #cameraWindow .split-ctl { margin-left: 0; }
   }
+
+  /* ===== 칸 머리줄: 이름표 · 작동 중 은 영상 밖 위쪽 줄에 (영상과 절대 겹치지 않음) ===== */
+  :root { --tile-head: 36px; }
+  .cam-grid .tile-view::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 0; height: var(--tile-head); z-index: 4;
+    background: var(--window); border-bottom: 1px solid var(--line-faint); pointer-events: none;
+  }
+  .cam-grid .tile-tag { top: 4px !important; left: 6px !important; height: 28px; padding: 0 8px; border-color: transparent;
+    background: transparent; max-width: calc(100% - 180px); }
+  .cam-grid .tile-tag:hover { border-color: var(--line); background: var(--inset); }
+  .cam-grid .cam-live { top: 4px !important; right: 6px !important; height: 28px; z-index: 5; border-color: transparent; background: transparent; }
+  body.handover-mode .cam-grid .tile-view > .cam-stage { top: var(--tile-head) !important; height: calc(100% - var(--tile-head)) !important; }
+  .cam-tile > .tile-view > img { top: var(--tile-head) !important; height: calc(100% - var(--tile-head)) !important; }
+  .cam-tile > .tile-view > .cam-state { top: var(--tile-head); }
 </style>
 </head>
 <body>
@@ -4698,6 +4712,8 @@
     const c = tileChrome('hand');
     view.appendChild(stage);
     view.insertAdjacentHTML('beforeend', c.top);
+    const live = stage.querySelector('#camLive');
+    if (live) view.appendChild(live);                               // '작동 중' 도 영상 위가 아니라 머리줄에
     tile.appendChild(view);
     tile.insertAdjacentHTML('beforeend', c.bar);
     camGrid.appendChild(tile);
