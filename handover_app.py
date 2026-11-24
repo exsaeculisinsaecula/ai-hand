@@ -481,6 +481,9 @@ class Runtime:
         self.vlm_detail: dict | None = None                    # VLM 관찰 (여러 정보) 마지막 결과
         self._locating = False
         self.locate_status: dict | None = None                 # [손 자동 찾기] 진행·결과
+        self.voice_status: dict = {"phase": "off"}            # 음성 입력 (팀원 vlm_go.py 의 Voice 그대로)
+        self._voice = None
+        threading.Thread(target=self._voice_warmup, daemon=True).start()
         self._describe_busy = False
         self.clf = PartClassifier()                 # YOLO 를 못 쓸 때의 대체 판별기
         self.yolo = None
@@ -786,6 +789,63 @@ class Runtime:
                                       f"{f.get('position', '-')} ({r['seconds']}s)")
         vlm.submit_describe(img.copy()).add_done_callback(done)
         return {"ok": True, "reply": f"VLM이 {source} 화면을 관찰하는 중입니다"}
+
+    # ---- 음성 입력: 팀원 vlm_go.py 의 Voice (Whisper small · 한국어 · 4초 녹음) 를 고치지 않고 그대로 씀 ----
+    VOICE_SECONDS = 4.0
+    VOICE_MODEL = "small"
+
+    @staticmethod
+    def _team_vlm_go():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("team_vlm_go", ROOT / "vlm_go" / "vlm_go.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def _voice_warmup(self) -> None:
+        """시작할 때 Whisper 를 미리 올려 둠 (첫 [말하기] 가 느리지 않게). 설치 안 돼 있으면 음성 버튼만 꺼짐."""
+        try:
+            mod = self._team_vlm_go()
+            v = mod.Voice(self.VOICE_SECONDS, self.VOICE_MODEL)
+            self.voice_status = {"phase": "loading", "msg": "음성 인식 준비 중 (Whisper)"}
+            if not v._load():
+                self.voice_status = {"phase": "off", "msg": "음성 입력을 쓰려면: pip install -r vlm_go/requirements-voice.txt"}
+                return
+            self._voice = v
+            self.voice_status = {"phase": "ready", "msg": f"Whisper {self.VOICE_MODEL} 준비됨"}
+            self.task._log("SYS", f"음성 입력 준비됨 — 팀원 vlm_go.py 의 Whisper {self.VOICE_MODEL} · {self.VOICE_SECONDS:g}초 녹음")
+        except Exception as exc:
+            self.voice_status = {"phase": "off", "msg": f"음성 입력을 쓸 수 없습니다 ({exc.__class__.__name__})"}
+
+    def start_voice(self, test_file: str = "") -> dict:
+        if self._voice is None:
+            return {"ok": False, "reply": self.voice_status.get("msg") or "음성 입력을 준비하는 중입니다"}
+        if self.voice_status.get("phase") in ("listening", "transcribing"):
+            return {"ok": False, "reply": "이미 듣는 중입니다"}
+        self._voice.test_file = test_file
+        self.voice_status = {"phase": "listening", "since": time.time(), "seconds": self.VOICE_SECONDS,
+                             "msg": f"듣는 중 — {self.VOICE_SECONDS:g}초 동안 말하십시오"}
+        threading.Thread(target=self._voice_run, daemon=True).start()
+        return {"ok": True, "reply": "듣는 중입니다"}
+
+    def _voice_run(self) -> None:
+        try:
+            if not self._voice.test_file:                  # 녹음 시간이 지나면 '알아듣는 중' 으로 (팀원 코드는 고치지 않음)
+                threading.Timer(self.VOICE_SECONDS, lambda: self.voice_status.get("phase") == "listening"
+                                and self.voice_status.update(phase="transcribing", msg="알아듣는 중")).start()
+            text, wav = self._voice.listen()
+            text = (text or "").strip()
+            if len(text.replace(" ", "")) < 2:
+                self.voice_status = {"phase": "fail", "msg": "못 알아들었습니다 — 다시 말하거나 글자로 입력하십시오", "t": time.time()}
+                self.task._log("SYS", "[음성] 못 알아들음")
+                return
+            self.task._log("SYS", f"[음성] {text}")
+            self.voice_status = {"phase": "understood", "text": text, "msg": "요청을 해석하는 중", "t": time.time()}
+            st = self.action({"action": "request", "text": text})          # 글자로 입력한 것과 같은 길
+            self.voice_status = {"phase": "done", "text": text, "result": st.get("result"), "t": time.time()}
+        except Exception as exc:
+            self.voice_status = {"phase": "fail", "msg": f"음성 입력 오류: {exc.__class__.__name__}", "t": time.time()}
+            self.task._log("ERR", f"[음성] 오류: {exc}")
 
     # ---- [손 자동 찾기]: 손을 쥐었다 펴서 움직인 자리 = 로봇 손 → VLM 이 확인 → 손 영역으로 ----
     def locate_hand(self) -> dict:
@@ -1277,6 +1337,8 @@ class Runtime:
             snap["view_order"] = list(self.view_order)
             snap["auto_cams"] = self.auto_cams
             snap["vlm_detail"] = self.vlm_detail
+            snap["voice"] = {k: v for k, v in self.voice_status.items() if k != "since"} | (
+                {"elapsed": round(time.time() - self.voice_status["since"], 1)} if "since" in self.voice_status else {})
             ls = self.locate_status
             snap["locate"] = ({k: v for k, v in ls.items() if k != "t"} | {"busy": self._locating,
                               "fresh": ls.get("phase") != "done" or time.monotonic() - ls.get("t", 0) < 5}) if ls else None
@@ -1309,6 +1371,11 @@ class Runtime:
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        if a == "voice":                                  # 입력창의 [말하기]
+            out = self.start_voice(str(p.get("file") or "") if self.link.is_mock or p.get("file") else "")
+            st = self.state()
+            st["result"] = out
+            return st
         if a == "locate_hand":                            # [손 자동 찾기]
             out = self.locate_hand()
             st = self.state()

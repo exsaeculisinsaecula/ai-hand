@@ -2893,6 +2893,41 @@
   .det-box.zone .dc-color { font-size: 12px; }
   .det-box.zone .dc-kind { font-size: 11px; letter-spacing: 0.1em; }
   .det-box.zone .dc-meta { margin: 0; padding: 0; border: 0; font-family: inherit; font-size: 11px; }
+  /* 쥘 자리: 이름표 없이 상자만 (화면을 덜 가리게) */
+  .det-box.zone .det-card { display: none !important; }
+  /* 입력창 [말하기] (음성) */
+  .ask-mic { flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 60px; margin: 4px 8px 6px 0; padding: 0 18px;
+    font: inherit; font-size: 18px; letter-spacing: 0.04em; color: var(--text); background: var(--window);
+    border: 1px solid var(--line); cursor: pointer;
+    transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+  .ask-mic[hidden] { display: none; }
+  .ask-mic:hover:not(:disabled) { border-color: var(--text); }
+  .ask-mic:disabled { cursor: default; }
+  .mic-ico { position: relative; width: 12px; height: 18px; border: 2px solid currentColor; border-radius: 7px; }
+  .mic-ico::after { content: ''; position: absolute; left: 50%; bottom: -7px; width: 12px; height: 6px; transform: translateX(-50%);
+    border: 2px solid currentColor; border-top: 0; border-radius: 0 0 8px 8px; }
+  .ask-mic[data-phase="listening"] { background: var(--warning); border-color: var(--warning); color: #fff; animation: mic-pulse 1s ease-in-out infinite; }
+  .ask-mic[data-phase="transcribing"], .ask-mic[data-phase="understood"], .ask-mic[data-phase="loading"] { color: var(--text-muted); border-style: dashed; }
+  @keyframes mic-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 22%, transparent); } }
+  @media (max-width: 720px) { .ask-mic { min-height: 48px; font-size: 15px; padding: 0 12px; } .ask-mic span { display: none; } }
+
+  /* ===== VLM 판단 창: 판정 방식 + VLM 관찰을 한곳에 ===== */
+  .jp-body { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 18px; }
+  .jp-col { min-width: 0; }
+  .jp-sub { display: flex; align-items: center; gap: 8px; font-size: 12px; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 2px; }
+  .jp-look { border-left: 1px solid var(--line-faint); padding-left: 16px; }
+  .jp-look-btn { margin-left: auto; height: 24px; padding: 0 10px; font: inherit; font-size: 12px; letter-spacing: 0.04em;
+    border: 1px solid var(--line); background: var(--window); color: var(--text-sec); cursor: pointer; }
+  .jp-look-btn:hover { border-color: var(--text); color: var(--text); }
+  .jp-look .vlm-detail { display: block; padding: 0; border: 0; background: transparent; }
+  .jp-look .vd-head { margin: 2px 0 4px; font-size: 12px; }
+  .jp-look .vd-chips { flex-wrap: wrap; overflow: visible; gap: 4px; }
+  .jp-look .vd-chip { font-size: 12px; padding: 1px 7px; }
+  .jp-look .vd-chip.wide { flex: 0 1 auto; max-width: 100%; }
+  .jp-look .vd-empty { font-size: 12px; }
+  .judge-panel:not(.expanded) .jp-look .vd-chip.wide { display: none; }       /* 주변·메모는 [자세히] 에서 */
+  .judge-panel.expanded .jp-look .vd-chip.wide { white-space: normal; }
+  @media (max-width: 1100px) { .jp-body { grid-template-columns: minmax(0, 1fr); } .jp-look { border-left: 0; padding-left: 0; border-top: 1px solid var(--line-faint); padding-top: 6px; } }
 </style>
 </head>
 <body>
@@ -3125,6 +3160,7 @@
       <label class="ask-label" for="askInput">무엇을 가져오겠습니까? <span class="vlm-status" id="vlmStatus" hidden></span></label>
       <div class="ask-field">
         <input id="askInput" type="text" maxlength="120" placeholder="예: 파란색 육각 캡 줘" enterkeyhint="send">
+        <button type="button" class="ask-mic" id="askMic" title="눌러서 4초 동안 말하기 (Whisper 음성 인식)" hidden><i class="mic-ico" aria-hidden="true"></i><span>말하기</span></button>
         <button type="submit" class="ask-send" id="askSend">가져오기</button>
       </div>
       <div class="ask-examples" aria-label="예시 요청">
@@ -4820,7 +4856,7 @@
     if (hiPlace && paLabel) { hiPlace.textContent = ''; hiPlace.appendChild(paLabel); }   // 각도 입력은 설정 탭으로
     const ex = [['빨간 공 줘', '빨간 공 줘'], ['파란 공 줘', '파란 공 줘'], ['초록 공 줘', '초록 공 줘']];
     document.querySelectorAll('[data-ask]').forEach((b, i) => { if (ex[i]) { b.dataset.ask = ex[i][0]; b.textContent = ex[i][1]; b.classList.add('ball-btn'); b.dataset.part = String([1, 2, 3][i]); } });
-    document.getElementById('askInput').placeholder = '예: 빨간 공 줘 / 파란 공 줘 / 초록 공 줘';
+    document.getElementById('askInput').placeholder = '예: 빨간 공 줘 — 또는 [말하기]를 누르고 말하십시오';
     vlmReply.textContent = '받을 공을 입력하면 해석 결과가 여기에 나옵니다';
     vlmCues.textContent = '문장을 입력하면 VLM이 이해해 빨간 공 · 파란 공 · 초록 공 중 하나를 고르고 로봇에 신호를 보냅니다';
     document.querySelector('.status-actions [onclick="uiHand()"]').textContent = '쥐어줬습니다';
@@ -4891,11 +4927,6 @@
     ctl.querySelector('.auto-btn').addEventListener('click', () => postBackendAction('view_auto', null, { on: !(hoSnap && hoSnap.auto_cams) }));
     const status = document.getElementById('camWinStatus');
     status.parentNode.insertBefore(ctl, status);
-    const card = document.createElement('div');
-    card.className = 'vlm-detail';
-    card.id = 'vlmDetail';
-    card.hidden = true;
-    camGrid.parentNode.insertBefore(card, camGrid.nextSibling);
   }
   const DETAIL_KO = [['object', '물체'], ['color', '색'], ['count', '개수'], ['position', '위치'], ['state', '상태'], ['scene', '주변'], ['note', '메모']];
   let detailSig = '';
@@ -4903,15 +4934,14 @@
     const card = document.getElementById('vlmDetail');
     const d = snap.vlm_detail;
     if (!card) return;
-    if (!d) { card.hidden = true; return; }
+    if (!d) return;
     const sig = JSON.stringify(d);
     if (sig === detailSig) return;
     detailSig = sig;
-    card.hidden = false;
     const f = d.fields || {};
     const chips = DETAIL_KO.filter(([k]) => f[k] !== undefined && f[k] !== '')
       .map(([k, ko]) => { const v = String(f[k]).replace(/</g, '&lt;').replace(/"/g, '&quot;'); return `<span class="vd-chip${k === 'scene' || k === 'note' ? ' wide' : ''}" title="${ko}: ${v}"><i>${ko}</i>${v}</span>`; }).join('');
-    card.innerHTML = `<div class="vd-head"><b>VLM 관찰</b><span>${d.source || ''}</span>`
+    card.innerHTML = `<div class="vd-head"><span>${d.source || ''}</span>`
       + `<span class="vd-meta">${d.busy ? '관찰하는 중…' : `${d.time || ''}${d.seconds ? ` · ${d.seconds}s` : ''}`}</span></div>`
       + `<div class="vd-chips${d.busy ? ' busy' : ''}">${chips || '<span class="vd-empty">관찰 결과가 없습니다</span>'}</div>`;
     card.title = '판정에는 쓰지 않는 참고 정보입니다 (작은 모델이라 주변 설명은 틀릴 수 있음)';
@@ -5261,11 +5291,17 @@
     const el = document.createElement('section');
     el.className = 'judge-panel';
     el.id = 'judgePanel';
-    el.innerHTML = `<div class="jp-head"><b>판정 방식</b><span class="jp-mode" id="jpMode"></span><button type="button" class="jp-more" id="jpMore">자세히</button></div>
-      <ol class="jp-steps">${JUDGE_STEPS.map(([k, t, d, who], i) => `<li data-step="${k}"><span class="jp-no">${i + 1}</span>`
-        + `<div title="${d}"><b>${t}</b><i class="jp-who">${who}</i><small>${d}</small></div></li>`).join('')}</ol>
-      <div class="jp-last" id="jpLast">최근 판정이 여기에 표시됩니다</div>`;
+    el.innerHTML = `<div class="jp-head"><b>VLM 판단</b><span class="jp-mode" id="jpMode"></span><button type="button" class="jp-more" id="jpMore">자세히</button></div>
+      <div class="jp-body">
+        <div class="jp-col jp-judge"><div class="jp-sub">판정 방식</div>
+          <ol class="jp-steps">${JUDGE_STEPS.map(([k, t, d, who], i) => `<li data-step="${k}"><span class="jp-no">${i + 1}</span>`
+            + `<div title="${d}"><b>${t}</b><i class="jp-who">${who}</i><small>${d}</small></div></li>`).join('')}</ol>
+          <div class="jp-last" id="jpLast">최근 판정이 여기에 표시됩니다</div></div>
+        <div class="jp-col jp-look"><div class="jp-sub">VLM 관찰<button type="button" class="jp-look-btn" id="jpLookBtn" title="손 카메라 화면을 VLM 이 보고 무엇인지·색·개수·위치·상태를 알려 줌">관찰</button></div>
+          <div class="vlm-detail" id="vlmDetail"><span class="vd-empty">[관찰] 을 누르거나 VLM 이 쥐기를 승인하면 여기에 나옵니다</span></div></div>
+      </div>`;
     document.querySelector('.console').appendChild(el);
+    el.querySelector('#jpLookBtn').addEventListener('click', () => postBackendAction('describe', null, { slot: 'hand' }));
     try { el.classList.toggle('expanded', localStorage.getItem('aihand.judgeExpanded') === '1'); } catch (_) {}
     const more = el.querySelector('#jpMore');
     const sync = () => { more.textContent = el.classList.contains('expanded') ? '간단히' : '자세히'; };
@@ -5293,6 +5329,33 @@
         + ` · ${d.second ? `달라서 두 번째 확인 → ${d.second}` : (d.rule === '-' ? '규칙 자신 없음 → VLM 판정' : '일치')} → ${d.final}`
       : '최근 판정이 여기에 표시됩니다';
     if (last.textContent !== text) { last.textContent = text; last.classList.remove('swap-in'); void last.offsetWidth; last.classList.add('swap-in'); }
+  }
+
+  // ===== 음성 입력 (팀원 vlm_go.py 의 Whisper 그대로) =====
+  let voiceSeen = 0;
+  document.getElementById('askMic').addEventListener('click', () => postBackendAction('voice'));
+  function renderVoice(snap) {
+    const v = snap.voice || { phase: 'off' };
+    const btn = document.getElementById('askMic');
+    btn.hidden = v.phase === 'off' && !v.msg;
+    btn.disabled = v.phase === 'off' || v.phase === 'loading' || v.phase === 'listening' || v.phase === 'transcribing' || v.phase === 'understood';
+    btn.dataset.phase = v.phase;
+    const left = v.seconds ? Math.max(0, Math.ceil(v.seconds - (v.elapsed || 0))) : 0;
+    btn.querySelector('span').textContent = { loading: '준비 중', listening: `듣는 중 ${left}`, transcribing: '알아듣는 중', understood: '해석 중' }[v.phase] || '말하기';
+    btn.title = v.phase === 'off' ? (v.msg || '음성 입력을 쓸 수 없습니다') : '눌러서 4초 동안 말하기 (Whisper 음성 인식)';
+    if (v.phase === 'listening') showVlm('듣는 중입니다 — 지금 말하십시오', `예: "빨간 공 줘" · ${left}초 남음`, 'thinking');
+    if (v.phase === 'transcribing') showVlm('알아듣는 중입니다', 'Whisper 음성 인식', 'thinking');
+    if (v.t && v.t !== voiceSeen && (v.phase === 'done' || v.phase === 'fail')) {
+      voiceSeen = v.t;
+      if (v.phase === 'fail') { showVlm(v.msg || '못 알아들었습니다', '다시 말하거나 글자로 입력하십시오', 'warn'); return; }
+      askInput.value = '';
+      const r = v.result || {};
+      const info = r.info || {};
+      const name = ({ red: '빨간 공', blue: '파란 공', green: '초록 공' })[r.target];
+      const how = info.method ? `${info.method}${info.seconds ? ` ${info.seconds}s` : ''}` : '';
+      showVlm(r.reply || '', r.ok ? `음성 "${v.text}" → 이해: ${name} · ${how} → 로봇에 ${r.robot || 'OPEN'}(손 펴기) 전송`
+        : `음성 "${v.text}"${how ? ` · ${how}` : ''} · 다시 말해 주십시오`, r.ok ? 'ok' : 'warn', r.ok ? HO_PART[r.target] : null);
+    }
   }
 
   function applyHandover(snap) {
@@ -5374,9 +5437,10 @@
     vlmEl.textContent = vs.online ? `VLM ${vs.model} 연결됨` : 'VLM 꺼짐 · 단어 규칙으로 해석';
     vlmEl.title = vs.online ? `${vs.url} — 문장 이해 + 손 위 공 확인` : (vs.note || 'Ollama 를 실행하면 자동으로 연결됩니다');
     renderViews(snap);
+    renderJudge(snap);
     renderDetail(snap);
     renderOverlay(snap);
-    renderJudge(snap);
+    renderVoice(snap);
     const pa = document.getElementById('placeAngle');
     if (document.activeElement !== pa && snap.place_angle != null) pa.value = snap.place_angle;
     renderHandover();

@@ -60,6 +60,7 @@ python app.py --serial --webcam --yolo-model models/best.pt
 ## 실물 받기 작업 (서 있는 AiHand + micro:bit + USB 웹캠)
 > **받을 물건: 빨간 공 · 파란 공 · 초록 공.** 검색창 문장 이해와 손 위 공 확인은 VLM(로컬 Ollama · Gemma 3 4B, 팀 vlm-go 방식)이 맡고,
 > Ollama 가 꺼져 있으면 단어 규칙·색 규칙으로 동작합니다.
+> 요청은 글자 또는 **음성**(입력창 [말하기], 팀원 `vlm_go/` 의 Whisper)으로 할 수 있습니다. 팀원의 단독 시험 도구는 `vlm_go/README.md`.
 > 이어서 작업하는 분은 먼저 [`docs/HANDOFF.md`](docs/HANDOFF.md) 를 읽어 주십시오.
 
 로봇손은 팔 없이 서 있고, 사람이 손바닥에 공을 쥐어 줍니다. 작업자가 대시보드에 "빨간 공 줘"처럼 입력하면

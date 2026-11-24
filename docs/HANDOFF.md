@@ -91,8 +91,20 @@ python handover_app.py              # 대시보드가 Ollama 를 자동으로 �
 - 팀 `microbit_go.py` 의 `GO` 명령(손가락 접기 → 3초 → 펴기)을 팀 펌웨어 `microbit/handover.py` 에 합쳤습니다 (`FW_VERSION = "6"`).
   예전에는 대시보드(v5)와 vlm_go(5-go)가 서로 펌웨어를 다시 설치했지만, 이제 한 펌웨어로 둘 다 씁니다.
   `handover_app.py` 를 실행하면 v6 가 자동 설치됩니다.
-- `vlm_go.py` (루트): 대시보드 없이 "보이면 GO" 만 시험하는 팀 도구. Windows COM 포트 자동 탐색을 넣었습니다.
-  `python vlm_go.py --dry --camera 1` (micro:bit 없이 판단만), `python vlm_go.py --camera 1 --watch 3`
+- **`vlm_go/` (팀원 전달본, 2026-11-24 — 고치지 않고 그대로 넣음)**: 대시보드 없이 "보이면 GO" 를 시험하는 팀 도구.
+  글자 입력 + **음성 입력**(Enter → 4초 녹음 → faster-whisper `small`, 한국어, 노트북 안에서). 자세한 사용법은 `vlm_go/README.md`.
+  ```powershell
+  pip install -r vlm_go/requirements.txt -r vlm_go/requirements-voice.txt
+  cd vlm_go
+  python vlm_go.py --dry --camera 0                 # 판단만 (Enter = 음성, 글자 입력도 됨)
+  python vlm_go.py --install                        # 팀원 펌웨어(5-go) 설치 → 대시보드를 다시 켜면 v6 로 자동 복구
+  python vlm_go.py --camera 0                       # 보이면 GO → 손 쥐었다 폄
+  ```
+  - 2026-11-24 이 PC 시험: 글자 입력 · 음성(Whisper 가 문장을 그대로 받아씀, 1.4초) · micro:bit 자동 탐색(COM4) · `--install` · 실제 로봇 GO(`DONE,GO`) 모두 통과.
+  - 대시보드와 동시에 쓰지 말 것 (micro:bit·카메라를 한 프로그램만 열 수 있음).
+- **대시보드 음성 입력**: 입력창 [말하기] → 팀원 `vlm_go/vlm_go.py` 의 `Voice` 클래스를 고치지 않고 그대로 불러 씀
+  (Whisper small · 한국어 · 4초, 마이크는 이 PC 기본 입력 = Osmo 카메라 마이크) → 알아들은 문장을 글자 입력과 같은 VLM 해석으로.
+  음성 패키지가 없으면 버튼이 꺼지고 글자 입력은 그대로.
 
 ### 남은 일
 | 항목 | 상태 |
@@ -117,6 +129,6 @@ python handover_app.py              # 대시보드가 Ollama 를 자동으로 �
 
 ## 4. 확인 방법
 ```powershell
-python -m unittest discover -s tests            # 139개 (팀 test 이미지가 없으면 2개 건너뜀)
+python -m unittest discover -s tests            # 140개 (팀 test 이미지가 없으면 2개 건너뜀)
 python handover_app.py --mock                   # 로봇 없이 대시보드 흐름 확인 → http://127.0.0.1:8090/index.html
 ```

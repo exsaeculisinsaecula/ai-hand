@@ -90,6 +90,7 @@ class HandoverTask:
         self._cycle_t0: float | None = None
         self._vlm_job = None                    # VLM 작업 (Future, 화면 결과, 종류)
         self._first_look = None                 # 규칙과 달라 두 번째 확인 중일 때 첫 VLM 판정
+        self._home_after = False                # 움직이는 중에 취소 → 그 동작이 끝나면 HOME
         self._vlm_hold = False                  # VLM 과 YOLO 가 달라 작업자 확인을 기다리는 중
         self.vlm_blocked = 0                    # VLM 이 found=false 로 막은 횟수
         self.last_vlm: dict | None = None       # 마지막 VLM 손 위 확인 결과
@@ -307,8 +308,12 @@ class HandoverTask:
             self._log("SYS", "요청 취소")
             self.target = None
             self._cycle_t0 = None
-            self._send("HOME")
-            self._enter("HOME", "취소 — 손을 펴고 정면으로 복귀 중", "pass")
+            if self._awaiting:                          # 로봇이 움직이는 중에 보낸 명령은 펌웨어가 버림 → 끝나면 HOME
+                self._home_after = True
+                self._enter("HOME", "취소 — 지금 동작이 끝나면 정면으로 복귀합니다", "pass")
+            else:
+                self._send("HOME")
+                self._enter("HOME", "취소 — 손을 펴고 정면으로 복귀 중", "pass")
 
     def stop(self) -> None:
         self.stopped = True
@@ -618,6 +623,11 @@ class HandoverTask:
         self._log("ERR" if raw.startswith("ERR") else "RX", raw)
         if raw == "EVT,BTN_A":
             self.manual_confirm()
+            return
+        if self._home_after and (raw.startswith("DONE,") or raw.startswith("ERR")):
+            self._home_after = False                    # 취소 뒤 끝난 동작 → 이제 HOME
+            self._awaiting = None
+            self._send("HOME")
             return
         if raw.startswith("ERR"):
             self._awaiting = None

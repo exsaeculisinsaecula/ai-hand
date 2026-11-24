@@ -454,3 +454,19 @@ class HandZoneFromMotionTests(unittest.TestCase):
         from vision.parts import hand_zone_from_motion
         f = canvas()
         self.assertIsNone(hand_zone_from_motion(f, f.copy(), f.copy()))
+
+
+class CancelDuringMotionTests(unittest.TestCase):
+    """움직이는 중에 취소하면 펌웨어가 HOME 을 버리므로, 동작이 끝난 뒤 HOME 을 보내야 함 (멈춤 방지)"""
+
+    def test_cancel_while_opening_sends_home_after_done(self):
+        clock, link = FakeClock(), FakeLink()
+        task = HandoverTask(link, clock=clock)
+        task.request("빨간 공 줘")
+        self.assertEqual(link.sent[-1], "OPEN")
+        task.cancel()                                   # 펴는 중에 취소
+        self.assertEqual(link.sent[-1], "OPEN")         # 아직 HOME 을 보내지 않음
+        link.rx.append("DONE,OPEN"); task.step(None)
+        self.assertEqual(link.sent[-1], "HOME")
+        link.rx.append("DONE,HOME"); task.step(None)
+        self.assertEqual(task.state, "IDLE")
