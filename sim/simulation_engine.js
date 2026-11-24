@@ -97,7 +97,7 @@
       this.speed = 1.0;
       this.state = 'IDLE';
       this.tone = 'pass';
-      this.message = '대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.';
+      this.message = '대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르십시오.';
       this.targetPart = null;
       this.deliverSubstep = '';
       this.handoverSubstep = '';
@@ -308,13 +308,13 @@
         this.ledKey = 'PROX';
         this._log('SYS', `근접 자동 잡기 모드 활성 (임계값 ≤ ${this.graspThresholdCm.toFixed(1)} cm)`);
         if (this.state === 'IDLE') {
-          this.message = '근접 감지 대기 — 공을 로봇손 가까이 드래그하거나 [공 가까이 보내기]를 누르세요.';
+          this.message = '근접 감지 대기 — 공을 로봇손 가까이 드래그하거나 [공 가까이 보내기]를 누르십시오.';
         }
       } else {
         this.ledKey = 'IDLE';
         this.focusBallId = null;
         if (this.state === 'IDLE') {
-          this.message = '대기 중 — 손짓(1·2·3)을 입력하거나 자동 시나리오를 실행하세요.';
+          this.message = '대기 중 — 손짓(1·2·3)을 입력하거나 자동 시나리오를 실행하십시오.';
         }
       }
     }
@@ -325,7 +325,7 @@
      */
     launchProximityApproach(partId) {
       if (this.state !== 'IDLE' && !this.emergencyStopped) {
-        this._log('SYS', `현재 ${this.state} 진행 중입니다. 대기(IDLE) 상태에서 근접 테스트를 시작하세요.`);
+        this._log('SYS', `현재 ${this.state} 진행 중입니다. 대기(IDLE) 상태에서 근접 테스트를 시작하십시오.`);
         return;
       }
       this.emergencyStopped = false;
@@ -459,7 +459,7 @@
       this._log('TX', `SHOW,${part}`);
       this._log('RX', 'ACK');
       this.setVirtualGesture('NONE', conf, `글 요청 확정 (#${part}) — 2초 내 취소 가능`, true);
-      this._enterState('CONFIRM', `글 요청 확정 (${part}번 부품) — 2.0초 내 취소할 수 있어요`, 'accent', 2.0);
+      this._enterState('CONFIRM', `글 요청 확정 (${part}번 부품) — 2.0초 내 취소할 수 있습니다`, 'accent', 2.0);
       return true;
     }
 
@@ -524,7 +524,7 @@
         this._log('TX', 'HOME');
         this._log('RX', 'DONE,HOME');
         this.ledKey = 'X';
-        this._goIdle(`오류(ERR,EMPTY): 트레이 ${pid}이 비어 있습니다. 보충 후 재시도하세요.`, 'warn');
+        this._goIdle(`오류(ERR,EMPTY): 트레이 ${pid}이 비어 있습니다. 보충 후 재시도하십시오.`, 'warn');
         return;
       }
       if (errCode === 'ERR,GRIP') {
@@ -562,7 +562,7 @@
       this.state = 'IDLE';
       this.tone = 'warn';
       this.progress = 0;
-      this.message = '비상 정지(STOP) — 현재 각도 유지. 새 요청 또는 대기 복귀로 재개하세요.';
+      this.message = '비상 정지(STOP) — 현재 각도 유지. 새 요청 또는 대기 복귀로 재개하십시오.';
     }
 
     resumeFromStop() {
@@ -595,7 +595,7 @@
 
       this.state = 'IDLE';
       this.tone = 'pass';
-      this.message = '리셋 완료 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.';
+      this.message = '리셋 완료 — 가져올 부품을 입력하거나 카메라에서 부품을 누르십시오.';
       this.targetPart = null;
       this.deliverSubstep = '';
       this.handoverSubstep = '';

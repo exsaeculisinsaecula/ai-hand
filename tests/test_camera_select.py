@@ -46,6 +46,7 @@ def make_runtime(tmp):
     rt._cam_switch = False
     rt.cam_disabled = set()
     rt.frame = np.zeros((480, 640, 3), np.uint8)    # 1번(지금 쓰는 카메라)의 최근 프레임
+    rt.views, rt.tray_slot = {}, None               # 분할 화면 칸 (없음)
     return rt
 
 
@@ -226,3 +227,62 @@ class PortDiscoveryTests(unittest.TestCase):
         ports = self._ports(("/dev/ttyACM0", None, "n/a"))
         with mock.patch("serial.tools.list_ports.comports", return_value=ports):
             self.assertEqual(app.RobotLink.list_microbit_ports(), ["/dev/ttyACM0"])
+
+
+class FakeView:
+    """ViewCam 대역 (스레드·카메라 없이)"""
+
+    def __init__(self, rt, slot, src):
+        self.slot, self.src, self.stopped = slot, src, False
+
+    def stop(self):
+        self.stopped = True
+
+
+class MultiCamTests(unittest.TestCase):
+    """CAM 1~4 분할 화면: 칸에 카메라 넣기 · 자리 바꾸기 · 분할 줄이면 닫기 · 쟁반 칸"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.patches = [mock.patch.object(app.Runtime, "SETTINGS_FILE", Path(self.tmp.name) / "s.json"),
+                        mock.patch.object(app, "ViewCam", FakeView)]
+        for p in self.patches:
+            p.start()
+        self.rt = make_runtime(self.tmp.name)
+        self.rt.split, self.rt.view_order = 4, ["hand", "2", "3", "4"]
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.tmp.cleanup()
+
+    def test_set_view_and_saved(self):
+        self.assertTrue(self.rt.set_view(3, "2")["ok"])
+        self.assertEqual(self.rt.views[3].src, 2)                       # 숫자는 웹캠 번호로
+        saved = json.loads(app.Runtime.SETTINGS_FILE.read_text())
+        self.assertEqual(saved["view_sources"], {"3": 2})
+
+    def test_reorder_then_shrink_closes_hidden_cameras(self):
+        self.rt.set_view(2, "0")
+        self.rt.set_view(4, "3")
+        self.assertTrue(self.rt.set_view_order(["4", "hand", "2", "3"])["ok"])   # CAM 1 자리에 4번 칸
+        cam_slot2 = self.rt.views[2]
+        self.rt.set_split(2)                                            # 보이는 건 "4", "hand" 뿐
+        self.assertEqual(sorted(self.rt.views), [4])
+        self.assertTrue(cam_slot2.stopped)
+
+    def test_bad_order_rejected(self):
+        self.assertFalse(self.rt.set_view_order(["hand", "2", "2", "4"])["ok"])
+
+    def test_tray_slot_toggles_and_needs_camera(self):
+        self.assertFalse(self.rt.set_tray_slot(3)["ok"])                # 빈 칸은 쟁반 불가
+        self.rt.set_view(3, "2")
+        self.rt.set_tray_slot(3)
+        self.assertEqual(self.rt.tray_slot, 3)
+        self.rt.set_tray_slot(3)                                        # 다시 누르면 해제
+        self.assertIsNone(self.rt.tray_slot)
+
+    def test_picker_can_fill_a_tile(self):
+        out = self.rt.select_camera("view2", 4)
+        self.assertTrue(out["ok"])
+        self.assertEqual(self.rt.views[2].src, 4)

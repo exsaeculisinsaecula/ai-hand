@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from controller.handover import HandoverTask
-from vision.parts import PartClassifier, extract_features, parse_request, rule_classify
+from vision.parts import PartClassifier, extract_features, find_balls, parse_request, rule_classify
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "models" / "neuralgrip_best_two.pt"
@@ -49,19 +49,21 @@ EMPTY = {"label": "none", "confidence": 0.0, "box": None, "motion": 0.3}
 
 class ParseTests(unittest.TestCase):
     def test_words(self):
-        self.assertEqual(parse_request("볼트 줘")[0], "bolt")
-        self.assertEqual(parse_request("너트 하나 받아")[0], "nut")
-        self.assertEqual(parse_request("give me a nut")[0], "nut")
+        self.assertEqual(parse_request("빨간 공 줘")[0], "red")
+        self.assertEqual(parse_request("파란 공 하나 받아")[0], "blue")
+        self.assertEqual(parse_request("초록색")[0], "green")
+        self.assertEqual(parse_request("give me a blue ball")[0], "blue")
 
-    def test_washer_is_not_supported_by_model(self):
-        target, reply = parse_request("와셔 주세요")
+    def test_ball_without_color_asks_again(self):
+        target, reply = parse_request("공 주세요")
         self.assertIsNone(target)
-        self.assertIn("볼트·너트", reply)
+        self.assertIn("빨간 공 / 파란 공 / 초록 공", reply)
 
     def test_negation_and_ambiguity(self):
-        self.assertIsNone(parse_request("볼트랑 너트")[0])
-        self.assertEqual(parse_request("볼트 말고")[0], "nut")      # 남은 건 너트뿐
-        self.assertEqual(parse_request("볼트 말고 너트")[0], "nut")
+        self.assertIsNone(parse_request("빨간 공이랑 파란 공")[0])
+        self.assertIsNone(parse_request("빨간 공 말고")[0])               # 파란·초록 중 무엇인지 다시 물음
+        self.assertEqual(parse_request("빨간 공 말고 파란 공")[0], "blue")
+        self.assertEqual(parse_request("빨강 파랑 빼고")[0], "green")    # 남은 건 초록뿐
         self.assertIsNone(parse_request("안녕")[0])
 
 
@@ -71,7 +73,7 @@ class TaskTests(unittest.TestCase):
         self.link = FakeLink()
         self.task = HandoverTask(self.link, clock=self.clock, stable_frames=5)
 
-    def _to_receive(self, text="볼트 줘"):
+    def _to_receive(self, text="빨간 공 줘"):
         self.assertTrue(self.task.request(text)["ok"])
         self.assertEqual(self.link.sent[-1], "OPEN")
         self.link.rx.append("DONE,OPEN")
@@ -93,7 +95,7 @@ class TaskTests(unittest.TestCase):
     def test_happy_path_grip_place_verify_empty(self):
         self._to_receive()
         for _ in range(5):
-            self.task.step(seen("bolt"))
+            self.task.step(seen("red"))
         self.assertEqual(self.task.state, "GRIP")
         self.assertEqual(self.link.sent[-1], "GRIP")
         self._place_and_check([EMPTY] * 9)
@@ -105,74 +107,74 @@ class TaskTests(unittest.TestCase):
     def test_part_left_in_hand_counts_as_failure(self):
         self._to_receive()
         for _ in range(5):
-            self.task.step(seen("bolt"))
-        self._place_and_check([seen("bolt")] * 9)
+            self.task.step(seen("red"))
+        self._place_and_check([seen("red")] * 9)
         self.assertEqual(self.task.state, "IDLE")
         self.assertEqual(self.task.tone, "warn")
         self.assertEqual(self.task.stats()["failed"], 1)
 
     def test_wrong_part_ng_then_wait_for_removal(self):
-        self._to_receive("볼트 줘")
+        self._to_receive("빨간 공 줘")
         for _ in range(5):
-            self.task.step(seen("nut"))
+            self.task.step(seen("blue"))
         self.assertEqual(self.task.state, "VERIFY")
         self.assertEqual(self.link.sent[-1], "NG")
         self.assertEqual(self.task.reject_count, 1)
         self.link.rx.append("DONE,NG")
         self.task.step(None)
         self.assertEqual(self.task.state, "RECEIVE")
-        for _ in range(10):                                  # 너트가 그대로면 다시 NG 하지 않음
-            self.task.step(seen("nut"))
+        for _ in range(10):                                  # 파란 공가 그대로면 다시 NG 하지 않음
+            self.task.step(seen("blue"))
         self.assertEqual(self.link.sent.count("NG"), 1)
         for _ in range(5):                                   # 치우면 다시 판정
             self.task.step(EMPTY)
         for _ in range(5):
-            self.task.step(seen("bolt"))
+            self.task.step(seen("red"))
         self.assertEqual(self.task.state, "GRIP")
 
     def test_human_hand_motion_blocks_grip(self):
         self._to_receive()
         for _ in range(12):
-            self.task.step(seen("bolt", motion=15.0))        # 사람 손이 아직 손바닥 위
+            self.task.step(seen("red", motion=15.0))        # 사람 손이 아직 손바닥 위
         self.assertEqual(self.task.state, "RECEIVE")
         self.assertIn("손을 빼", self.task.message)
 
     def test_moving_object_does_not_trigger(self):
         self._to_receive()
         for i in range(12):
-            self.task.step(seen("bolt", x=100 + i * 40))
+            self.task.step(seen("red", x=100 + i * 40))
         self.assertEqual(self.task.state, "RECEIVE")
 
     def test_flicker_resets_streak(self):
         self._to_receive()
-        for lbl in ["bolt", "bolt", "none", "bolt", "bolt", "none", "bolt"]:
+        for lbl in ["red", "red", "none", "red", "red", "none", "red"]:
             self.task.step(seen(lbl) if lbl != "none" else EMPTY)
         self.assertEqual(self.task.state, "RECEIVE")
 
     def test_low_confidence_ignored(self):
         self._to_receive()
         for _ in range(12):
-            self.task.step(seen("bolt", conf=0.3))
+            self.task.step(seen("red", conf=0.3))
         self.assertEqual(self.task.state, "RECEIVE")
 
     def test_stop_and_aborted_reply(self):
         self._to_receive()
         for _ in range(5):
-            self.task.step(seen("bolt"))
+            self.task.step(seen("red"))
         self.task.stop()
         self.assertEqual(self.link.sent[-3:], ["STOP", "STOP", "STOP"])
         self.link.rx.append("ERR,ABORTED")                    # 펌웨어가 이동 중단을 알림
         self.task.step(None)
         self.assertIn("비상 정지", self.task.message)        # 정지 안내가 덮어써지지 않음
-        self.assertFalse(self.task.request("너트")["ok"])
+        self.assertFalse(self.task.request("파란 공")["ok"])
         self.task.resume()
         self.link.rx.append("DONE,HOME")
         self.task.step(None)
         self.assertEqual(self.task.state, "IDLE")
-        self.assertTrue(self.task.request("너트")["ok"])
+        self.assertTrue(self.task.request("파란 공")["ok"])
 
     def test_command_timeout_stops(self):
-        self.task.request("볼트")
+        self.task.request("빨간 공")
         self.clock.t += 11.0
         self.task.step(None)
         self.assertTrue(self.task.stopped)
@@ -180,7 +182,7 @@ class TaskTests(unittest.TestCase):
     def test_button_a_confirms_quickly(self):
         self._to_receive()
         self.link.rx.append("EVT,BTN_A")
-        self.task.step(seen("bolt", motion=20.0))
+        self.task.step(seen("red", motion=20.0))
         self.assertEqual(self.task.state, "GRIP")
 
     def test_confirm_without_camera_grips_and_finishes(self):
@@ -197,7 +199,7 @@ class TaskTests(unittest.TestCase):
         self.task.place_angle = 130
         self._to_receive()
         for _ in range(5):
-            self.task.step(seen("bolt"))
+            self.task.step(seen("red"))
         self.link.rx.append("DONE,GRIP")
         self.task.step(None)
         self.assertEqual(self.link.sent[-1], "PLACE,130")
@@ -259,49 +261,36 @@ def canvas():
     return np.full((480, 640, 3), 235, np.uint8)
 
 
-def draw_bolt():
-    img = canvas()
-    cv2.rectangle(img, (200, 225), (460, 255), (40, 40, 40), -1)
-    cv2.rectangle(img, (170, 205), (205, 275), (40, 40, 40), -1)
+BALL_BGR = {"red": (70, 60, 200), "blue": (200, 110, 40), "green": (60, 170, 60)}
+
+
+def draw_ball(color, center=(320, 240), r=80, img=None):
+    img = canvas() if img is None else img
+    cv2.circle(img, center, r, BALL_BGR[color], -1)
     return img
 
 
-def draw_nut():
-    img = canvas()
-    c, r = (320, 240), 90
-    pts = np.array([[c[0] + r * np.cos(np.pi / 3 * k), c[1] + r * np.sin(np.pi / 3 * k)] for k in range(6)], np.int32)
-    cv2.fillPoly(img, [pts], (40, 40, 40))
-    cv2.circle(img, c, 40, (235, 235, 235), -1)
-    return img
+class ColorFallbackTests(unittest.TestCase):
+    """VLM 연동 전 임시 판별기 (색 규칙)."""
 
-
-def draw_washer():
-    img = canvas()
-    cv2.circle(img, (320, 240), 95, (40, 40, 40), -1)
-    cv2.circle(img, (320, 240), 42, (235, 235, 235), -1)
-    return img
-
-
-class ShapeFallbackTests(unittest.TestCase):
-    """YOLO 를 못 쓸 때의 대체 판별기."""
-
-    def test_rule_classifier_on_synthetic_shapes(self):
-        for img, want in ((draw_bolt(), "bolt"), (draw_nut(), "nut"), (draw_washer(), "washer")):
-            f, _ = extract_features(img)
+    def test_rule_classifier_on_synthetic_balls(self):
+        for want in ("red", "blue", "green"):
+            f, _ = extract_features(draw_ball(want))
             self.assertEqual(rule_classify(f)[0], want, f"{want}: {f}")
 
+    def test_gray_clutter_is_not_a_ball(self):
+        img = canvas()
+        cv2.rectangle(img, (100, 100), (400, 300), (60, 60, 60), -1)      # 회색 물체(채도 낮음)
+        self.assertIsNone(extract_features(img)[0])
+
     def test_background_difference_ignores_static_clutter(self):
-        bg = canvas()
-        cv2.line(bg, (0, 50), (640, 80), (120, 120, 120), 3)
-        frame = bg.copy()
-        washer = draw_washer()
-        mask = washer[:, :, 0] < 100
-        frame[mask] = washer[mask]
-        self.assertEqual(rule_classify(extract_features(frame, background=bg)[0])[0], "washer")
+        bg = draw_ball("green", center=(80, 80), r=40)                     # 원래 있던 초록 물체
+        frame = draw_ball("red", img=bg.copy())
+        self.assertEqual(rule_classify(extract_features(frame, background=bg)[0])[0], "red")
         self.assertIsNone(extract_features(bg.copy(), background=bg)[0])
 
     def test_hand_zone_ignores_objects_outside(self):
-        img = draw_washer()
+        img = draw_ball("blue")
         self.assertIsNotNone(extract_features(img, roi=(0.3, 0.2, 0.7, 0.8))[0])
         self.assertIsNone(extract_features(img, roi=(0.0, 0.0, 0.2, 0.2))[0])
 
@@ -309,11 +298,34 @@ class ShapeFallbackTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             clf = PartClassifier(data_dir=tmp)
             for _ in range(2):
-                clf.add_sample(draw_bolt(), "bolt")
-                clf.add_sample(draw_nut(), "nut")
-                clf.add_sample(draw_washer(), "washer")
-            self.assertEqual(clf.classify(draw_nut()).label, "nut")
-            self.assertEqual(PartClassifier(data_dir=tmp).counts()["washer"], 2)
+                for c in ("red", "blue", "green"):
+                    clf.add_sample(draw_ball(c), c)
+            self.assertEqual(clf.classify(draw_ball("blue")).label, "blue")
+            self.assertEqual(PartClassifier(data_dir=tmp).counts()["green"], 2)
+
+
+class TrayColorTests(unittest.TestCase):
+    """쟁반: 색 규칙으로 공을 모두 찾기 (find_balls)"""
+
+    def tray(self):
+        img = canvas()
+        cv2.rectangle(img, (30, 170), (610, 400), (140, 130, 115), -1)
+        for x, c in ((130, "red"), (320, "blue"), (510, "green")):
+            draw_ball(c, center=(x, 285), r=50, img=img)
+        return img
+
+    def test_finds_every_ball_left_to_right(self):
+        found = sorted(find_balls(self.tray()), key=lambda d: d["box"][0])
+        self.assertEqual([d["label"] for d in found], ["red", "blue", "green"])
+
+    def test_palm_zone_is_excluded(self):
+        found = find_balls(self.tray(), exclude=(0.4, 0.0, 0.6, 1.0))     # 가운데(파랑)는 손 영역
+        self.assertEqual(sorted(d["label"] for d in found), ["green", "red"])
+
+    def test_strip_is_not_a_ball(self):
+        img = canvas()
+        cv2.rectangle(img, (0, 50), (640, 62), BALL_BGR["red"], -1)
+        self.assertEqual(find_balls(img), [])
 
 
 @unittest.skipUnless(MODEL.exists(), "YOLO 가중치 없음")
@@ -366,8 +378,8 @@ class ManualStepTests(unittest.TestCase):
         return [o["key"] for o in self.task.manual_options()]
 
     def test_full_cycle_with_buttons_only_and_no_robot_replies(self):
-        self.assertEqual(self.keys(), ["req_bolt", "req_nut"])
-        self.assertTrue(self.task.manual("req_bolt")["ok"])
+        self.assertEqual(self.keys(), ["req_red", "req_blue", "req_green"])
+        self.assertTrue(self.task.manual("req_red")["ok"])
         self.assertEqual(self.task.state, "REQUEST")
         self.task.manual("skip_open")                 # OPEN 응답이 안 와도
         self.assertEqual(self.task.state, "RECEIVE")
@@ -382,7 +394,7 @@ class ManualStepTests(unittest.TestCase):
         self.assertEqual(self.task.stats()["done"], 1)
 
     def test_ng_then_receive_again_and_fail(self):
-        self.task.manual("req_nut")
+        self.task.manual("req_blue")
         self.task.manual("skip_open")
         self.task.manual("ng")
         self.assertEqual((self.task.state, self.link.sent[-1]), ("VERIFY", "NG"))
@@ -398,7 +410,7 @@ class ManualStepTests(unittest.TestCase):
         self.assertEqual(self.task.manual_options(), [])
 
     def test_late_robot_reply_is_ignored_after_manual_skip(self):
-        self.task.manual("req_bolt"); self.task.manual("skip_open"); self.task.manual("grip"); self.task.manual("place")
+        self.task.manual("req_red"); self.task.manual("skip_open"); self.task.manual("grip"); self.task.manual("place")
         self.link.rx.append("DONE,GRIP")              # 늦게 온 쥐기 완료 응답
         self.task.step(None)
         self.assertEqual(self.task.state, "PLACE")
@@ -408,6 +420,6 @@ class ManualBusyTests(unittest.TestCase):
     def test_manual_request_refused_while_robot_moving(self):
         task = HandoverTask(FakeLink(), clock=FakeClock())
         task._send("PLACE,180")                       # 직접 조작으로 움직이는 중
-        out = task.manual("req_bolt")
+        out = task.manual("req_red")
         self.assertFalse(out["ok"])
         self.assertEqual(task.state, "IDLE")

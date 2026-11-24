@@ -97,10 +97,10 @@
     const base = { part: null, name: '', confidence: 0, cues: [], candidates: [] };
 
     if (!t) {
-      return { ...base, status: 'invalid', reply: '가져올 부품을 글로 적어주세요.' };
+      return { ...base, status: 'invalid', reply: '가져올 부품을 글로 적어주십시오.' };
     }
     if (/(^|[^0-9])([04-9]|[1-9][0-9]+)\s*번/.test(t)) {
-      return { ...base, status: 'unknown', reply: '트레이에는 1·2·3번 부품만 있어요.' };
+      return { ...base, status: 'unknown', reply: '트레이에는 1·2·3번 부품만 있습니다.' };
     }
 
     // "파란 거 말고 초록" → 부정 앞쪽은 제외, 뒤쪽은 요청
@@ -127,7 +127,7 @@
       const pool = CATALOG.filter((p) => !excluded.has(p.id) && (stock[p.id] || 0) > 0)
         .sort((a, b) => (stock[b.id] || 0) - (stock[a.id] || 0));
       if (!pool.length) {
-        return { ...base, status: 'empty', reply: '가져올 수 있는 부품이 트레이에 없어요. 보충해주세요.' };
+        return { ...base, status: 'empty', reply: '가져올 수 있는 부품이 트레이에 없습니다. 보충해주십시오.' };
       }
       const pick = pool[0];
       const cues = [`재고 우선: ${pick.name} ${stock[pick.id]}개`];
@@ -135,7 +135,7 @@
       return {
         ...base, status: 'ok', part: pick.id, name: pick.name, confidence: 0.74, cues,
         candidates: ranked.map(({ part, score }) => ({ part, score })),
-        reply: `${pick.id}번 ${pick.name}을(를) 가져올게요. (재고가 가장 많아요)`,
+        reply: `${pick.id}번 ${pick.name}을(를) 가져오겠습니다. (재고가 가장 많습니다)`,
       };
     }
 
@@ -143,15 +143,15 @@
     const candidates = ranked.map(({ part, score }) => ({ part, score }));
     if (top.score <= 0) {
       if (UNKNOWN_OBJECT.test(t)) {
-        return { ...base, status: 'unknown', candidates, reply: '그 물건은 트레이에서 보이지 않아요. 캡 A·B·C 중에서 골라주세요.' };
+        return { ...base, status: 'unknown', candidates, reply: '그 물건은 트레이에서 보이지 않습니다. 캡 A·B·C 중에서 골라주십시오.' };
       }
-      return { ...base, status: 'unknown', candidates, reply: '어떤 부품인지 알아듣지 못했어요. 예: "파란 육각 캡", "2번", "초록색 거".' };
+      return { ...base, status: 'unknown', candidates, reply: '어떤 부품인지 알아듣지 못했습니다. 예: "파란 육각 캡", "2번", "초록색 거".' };
     }
     if (second && second.score === top.score) {
       const names = ranked.filter((r) => r.score === top.score).map((r) => `${r.part}번`).join(' / ');
       return {
         ...base, status: 'ambiguous', candidates, cues: top.cues,
-        reply: `${names} 중 어느 것인지 헷갈려요. 색이나 번호를 더 알려주세요.`,
+        reply: `${names} 중 어느 것인지 헷갈립니다. 색이나 번호를 더 알려주십시오.`,
       };
     }
 
@@ -162,12 +162,12 @@
     if ((stock[part.id] || 0) <= 0) {
       return {
         ...base, status: 'empty', part: part.id, name: part.name, confidence, cues, candidates,
-        reply: `${part.id}번 ${part.name}을(를) 찾았지만 트레이가 비어 있어요. 보충 후 다시 요청해주세요.`,
+        reply: `${part.id}번 ${part.name}을(를) 찾았지만 트레이가 비어 있습니다. 보충 후 다시 요청해주십시오.`,
       };
     }
     return {
       ...base, status: 'ok', part: part.id, name: part.name, confidence, cues, candidates,
-      reply: `${part.id}번 ${part.name}(${part.color} · ${part.shape})을(를) 가져올게요.`,
+      reply: `${part.id}번 ${part.name}(${part.color} · ${part.shape})을(를) 가져오겠습니다.`,
     };
   }
 

@@ -369,7 +369,7 @@
     ctx.fillRect(0, h - 20, w, 20);
     ctx.font = '500 9.5px "IBM Plex Mono", Consolas, monospace';
     ctx.fillStyle = '#858E98';
-    const hint = ['박스를 누르면 그 부품을 바로 요청해요', '박스 클릭: 부품 요청', ''].find((x) => ctx.measureText(x).width <= w - 20) || '';
+    const hint = ['박스를 누르면 그 부품을 바로 요청합니다', '박스 클릭: 부품 요청', ''].find((x) => ctx.measureText(x).width <= w - 20) || '';
     if (hint) ctx.fillText(hint, 10, h - 6.5);
     ctx.restore();
 

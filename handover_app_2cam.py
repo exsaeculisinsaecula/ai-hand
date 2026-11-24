@@ -2,10 +2,10 @@
 
 handover_app.py (웹캠 1대) 는 그대로 두고, 이 파일만 따로 실행합니다. 기존 파일은 고치지 않습니다.
 
-  웹캠 1 (쟁반)  쟁반 위 볼트·너트 → YOLO 가 요청한 부품을 골라 "PICK THIS" 표시
-  웹캠 2 (손)    로봇 손바닥 → YOLO 판정 (점수 낮으면 Gemma 교차 확인) → 쥐기 / NG
+  웹캠 1 (쟁반)  쟁반 위 공(빨강·파랑·초록) → 색 규칙이 요청한 공을 골라 "PICK THIS" 표시
+  웹캠 2 (손)    로봇 손바닥 → VLM(Gemma) found 판정 → 쥐기 / NG  (VLM 이 꺼져 있으면 색 규칙)
 
-  python3 handover_app_2cam.py --hand-camera 1 --tray-camera 2 --vlm          # 실물
+  python handover_app_2cam.py --hand-camera 1 --tray-camera 2                # 실물
   python3 handover_app_2cam.py --mock --hand-camera 0 --tray-camera 사진.jpg   # 웹캠 1대 + 쟁반은 사진으로 시험
   ... --point --point-left 135 --point-right 45     # 고른 부품 쪽으로 손목 돌려 알려 주기 (각도는 보정값)
 
@@ -25,11 +25,11 @@ import cv2
 import numpy as np
 
 import handover_app as one
-from vision.parts import YoloParts, YOLO_LABELS
+from vision.parts import YoloParts, YOLO_LABELS, find_balls
 
 ROOT = Path(__file__).resolve().parent
 TRAY_MIN_CONF = one.TRAY_MIN_CONF
-TRAY_FPS = 3.0                     # 쟁반 YOLO 는 요청 중에만, 초당 3번 (노트북 부담 줄이기)
+TRAY_FPS = 5.0                     # 쟁반 인식은 요청 중에만, 초당 5번 (노트북 부담 줄이기)
 
 
 class _EmptyTray:
@@ -78,7 +78,7 @@ class Runtime2Cam(one.Runtime):
         if isinstance(src, str) and Path(src).suffix.lower() in (".jpg", ".jpeg", ".png"):
             img = cv2.imread(src)
             if img is None:
-                self.tray_error = f"쟁반 사진을 읽을 수 없어요: {src}"
+                self.tray_error = f"쟁반 사진을 읽을 수 없습니다: {src}"
             return ("image", img)
         while self.running:
             if isinstance(src, int) and src in self.cam_disabled:   # 꺼 둔 쟁반 카메라
@@ -94,7 +94,7 @@ class Runtime2Cam(one.Runtime):
                 self.task._log("SYS", f"쟁반 웹캠({src}) 연결됨")
                 return ("cap", cap)
             cap.release()
-            self.tray_error = f"쟁반 웹캠({src})이 연결되지 않았어요"
+            self.tray_error = f"쟁반 웹캠({src})이 연결되지 않았습니다"
             time.sleep(2.0)
         return ("none", None)
 
@@ -120,7 +120,7 @@ class Runtime2Cam(one.Runtime):
                     fails += 1
                     if fails > 40:
                         src.release()
-                        self.task._log("SYS", "쟁반 웹캠 연결이 끊겼어요 — 다시 연결을 기다려요")
+                        self.task._log("SYS", "쟁반 웹캠 연결이 끊겼습니다 — 다시 연결을 기다립니다")
                         kind, src = self._open_tray()
                         fails = 0
                     time.sleep(0.05)
@@ -136,12 +136,12 @@ class Runtime2Cam(one.Runtime):
             now = time.monotonic()
             if not active:
                 self._tray_latest = []
-            elif self.tray_yolo is not None and now - last_infer >= 1.0 / TRAY_FPS:
+            elif now - last_infer >= 1.0 / TRAY_FPS:
                 last_infer = now
-                try:
-                    dets = self.tray_yolo.detect(frame)
+                try:                              # 공 YOLO 가 있으면 YOLO, 없으면 색 규칙
+                    dets = self.tray_yolo.detect(frame) if self.tray_yolo is not None else find_balls(frame)
                 except Exception as exc:
-                    self.task._log("ERR", f"쟁반 YOLO 오류: {exc}")
+                    self.task._log("ERR", f"쟁반 인식 오류: {exc}")
                     dets = []
                 fw = frame.shape[1]
                 self._tray_latest = [{"label": d["label"], "conf": round(float(d["conf"]), 2), "box": tuple(d["box"]),
@@ -170,7 +170,7 @@ class Runtime2Cam(one.Runtime):
         for d in tray["items"]:
             bx, by, bw, bh = d["box"]
             picked = tray["pick"] == d["n"]
-            c = (40, 200, 40) if picked else (150, 150, 150)
+            c = one.BALL_BGR.get(d["label"], (150, 150, 150))
             cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), c, th + (3 if picked else 0))
             cv2.putText(vis, f"#{d['n']} {d['label'].upper()} {d['conf']:.2f}", (bx, by + bh + int(28 * k)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.8 * k, c, th, cv2.LINE_AA)
@@ -209,21 +209,21 @@ class Runtime2Cam(one.Runtime):
     def select_camera(self, role: str, index: int) -> dict:
         if role == "hand":
             if index == self.tray_source:
-                return {"ok": False, "reply": f"{index}번은 쟁반 카메라로 쓰고 있어요"}
+                return {"ok": False, "reply": f"{index}번은 쟁반 카메라로 쓰고 있습니다"}
             return super().select_camera(role, index)
         if role == "tray":
             if index in self.cam_disabled:
-                return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라예요 — 먼저 켜 주세요"}
+                return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라입니다 — 먼저 켜 주십시오"}
             if index == self.camera_index:
-                return {"ok": False, "reply": f"{index}번은 손 카메라로 쓰고 있어요"}
+                return {"ok": False, "reply": f"{index}번은 손 카메라로 쓰고 있습니다"}
             if index == self.tray_source:
-                return {"ok": True, "reply": f"이미 {index}번을 쟁반 카메라로 쓰고 있어요"}
+                return {"ok": True, "reply": f"이미 {index}번을 쟁반 카메라로 쓰고 있습니다"}
             self.tray_source = index
             self._tray_switch = True
             self._save_settings(tray_camera=index)
-            self.task._log("SYS", f"쟁반 카메라를 {index}번으로 바꿨어요")
+            self.task._log("SYS", f"쟁반 카메라를 {index}번으로 바꿨습니다")
             return {"ok": True, "reply": f"쟁반 카메라를 {index}번으로 바꾸는 중"}
-        return {"ok": False, "reply": "알 수 없는 카메라 역할이에요"}
+        return {"ok": False, "reply": "알 수 없는 카메라 역할입니다"}
 
     def set_camera_power(self, index: int, on: bool) -> dict:
         out = super().set_camera_power(index, on)
@@ -246,12 +246,13 @@ def main() -> None:
     ap.add_argument("--mock", action="store_true", help="로봇 없이 모의 micro:bit 로 실행")
     ap.add_argument("--hand-camera", type=int, default=None, help="손 웹캠 번호 (생략하면 대시보드에서 마지막으로 고른 번호, 처음엔 1)")
     ap.add_argument("--tray-camera", default=None, help="쟁반 웹캠 번호 또는 시험용 사진 경로 (생략하면 마지막 선택, 처음엔 2)")
-    ap.add_argument("--model", type=Path, default=ROOT / "models" / "neuralgrip_best_two.pt")
+    ap.add_argument("--model", type=Path, default=None, help="공 YOLO(클래스 red/blue/green)가 생겼을 때만. 생략하면 색 규칙")
     ap.add_argument("--conf", type=float, default=0.35)
-    ap.add_argument("--vlm", action="store_true", help="Gemma: 요청 해석 + 손 위 교차 확인")
+    ap.add_argument("--vlm", action="store_true", help="(기본으로 켜져 있음 — 예전 명령 호환용)")
+    ap.add_argument("--no-vlm", action="store_true", help="VLM(Ollama) 끄기: 단어 규칙·색 규칙만 사용")
     ap.add_argument("--vlm-model", default="gemma3:4b")
-    ap.add_argument("--vlm-url", default="http://localhost:11434")
-    ap.add_argument("--vlm-verify-below", type=float, default=0.70)
+    ap.add_argument("--vlm-url", default="http://127.0.0.1:11434")
+    ap.add_argument("--vlm-verify-below", type=float, default=1.0, help="1 = 손 위는 항상 VLM 확인, 0 = 끔")
     ap.add_argument("--point", action="store_true", help="쟁반에서 고른 부품 쪽으로 손목을 돌려 알려 주기")
     ap.add_argument("--point-left", type=float, default=135, help="쟁반 화면 왼쪽 끝을 향하는 손목 각도 (보정)")
     ap.add_argument("--point-right", type=float, default=45, help="쟁반 화면 오른쪽 끝을 향하는 손목 각도 (보정)")
@@ -267,9 +268,9 @@ def main() -> None:
         a.tray_camera = str(saved.get("tray_camera", 2))
     tray_src = int(a.tray_camera) if a.tray_camera.isdigit() else a.tray_camera
     if tray_src == a.hand_camera:
-        raise SystemExit("손 카메라와 쟁반 카메라 번호가 같아요. 서로 다른 번호를 주세요.")
+        raise SystemExit("손 카메라와 쟁반 카메라 번호가 같습니다. 서로 다른 번호를 주십시오.")
     vlm = None
-    if a.vlm:
+    if not a.no_vlm:
         from vision.vlm_bridge import VlmBridge
         vlm = VlmBridge(a.vlm_model, a.vlm_url, verify_below=a.vlm_verify_below)
     link = one.MockLink() if a.mock else one.RobotLink(port_hint=a.port)

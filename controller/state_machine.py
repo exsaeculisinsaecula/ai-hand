@@ -129,7 +129,7 @@ class DeliveryStateMachine:
         self._return_substep = ""
         self._handover_substep = ""
         self._pick_retries = 0
-        self._enter(State.IDLE, "비상 정지(STOP) — 현재 각도 유지. 확인 후 재개하세요.", tone="warn")
+        self._enter(State.IDLE, "비상 정지(STOP) — 현재 각도 유지. 확인 후 재개하십시오.", tone="warn")
         self.target_part = None
 
     def mark_false_trigger(self) -> None:
@@ -148,7 +148,7 @@ class DeliveryStateMachine:
         if ok is False:
             self._add_log("ERR", reason)
             self._csv("DELIVERY_FAILED", f"vision_verify:part={part}")
-            self._go_idle(f"{reason} — 트레이 확인 후 재시도하세요.", tone="warn", send_home=True)
+            self._go_idle(f"{reason} — 트레이 확인 후 재시도하십시오.", tone="warn", send_home=True)
             return False
         self._add_log("SYS", reason)
         if ok:
@@ -169,7 +169,7 @@ class DeliveryStateMachine:
         self._send(format_command(CMD_SHOW, part), timeout=self.cfg.ack_timeout)
         self._enter(
             State.CONFIRM,
-            f"글 요청 확정 ({part}번 부품) — {self.cfg.confirm_seconds:.0f}초 내 취소할 수 있어요",
+            f"글 요청 확정 ({part}번 부품) — {self.cfg.confirm_seconds:.0f}초 내 취소할 수 있습니다",
             tone="accent",
             duration=self.cfg.confirm_seconds,
         )
@@ -361,7 +361,7 @@ class DeliveryStateMachine:
 
         self._csv("DELIVERY_FAILED", err_raw)
         if err_raw == ERR_EMPTY:
-            self._go_idle("오류(ERR,EMPTY): 트레이가 비어 있습니다. 보충 후 재시도하세요.", tone="warn", send_home=True)
+            self._go_idle("오류(ERR,EMPTY): 트레이가 비어 있습니다. 보충 후 재시도하십시오.", tone="warn", send_home=True)
         else:
             self._go_idle(f"오류({err_raw}) 알림 후 대기(IDLE) 복귀", tone="warn", send_home=True)
 

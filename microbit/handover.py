@@ -1,4 +1,10 @@
-"""micro:bit V2 MicroPython 펌웨어 — AiHand 손 전달(받기·회전·내려놓기).
+"""micro:bit V2 MicroPython 펌웨어 — AiHand 손 전달(받기·회전·내려놓기) + VLM 신호(GO).
+
+GO 명령은 팀 vlm-go(jihustar12-design/vlm-go) 의 microbit_go.py 에서 가져와 합쳤다.
+  GO 또는 1      → DONE,GO        손가락 접기 → 3초 대기 → 손가락 펴기 (1회)
+  vlm_go.py 가 VLM 판단이 true 일 때 GO 를 보낸다. 대시보드(handover_app.py)는 GRIP/PLACE 를 쓴다.
+  하나의 펌웨어로 두 프로그램을 모두 쓸 수 있어, 서로 펌웨어를 다시 설치하지 않는다.
+
 
 PC(USB 시리얼 115200) 명령 → 응답:
   PING            → ACK
@@ -32,7 +38,8 @@ GRIP_MS = 1500       # 쥐기 (ms)
 OPEN_MS = 700        # 펴기 (ms)
 PAN_MS = 1500        # 손목 회전 (ms)
 STEP_MS = 60         # 보간 한 단계 (ms)
-FW_VERSION = "5"     # PC가 VER 로 확인 → 다르면 자동 재설치
+FW_VERSION = "6"     # PC가 VER 로 확인 → 다르면 자동 재설치 (6 = GO 명령 포함)
+GO_HOLD_MS = 3000    # GO: 접은 채 기다리는 시간 (ms)
 
 stopped = False
 aborted = False      # 이동 도중 STOP 수신
@@ -166,6 +173,19 @@ def do_ng():
     return move({6: PAN_FRONT}, 260)
 
 
+def do_go():
+    """VLM 신호 매크로: 손가락 접기 → 3초 대기 → 손가락 펴기. 대기 중에도 STOP 확인."""
+    if not move(GRIP_ANGLES, GRIP_MS):
+        return False
+    waited = 0
+    while waited < GO_HOLD_MS:
+        sleep(100)
+        waited += 100
+        if _check_stop():
+            return False
+    return move(OPEN_ANGLES, OPEN_MS)
+
+
 def handle(line):
     global stopped
     cmd = "".join(ch for ch in line if 32 <= ord(ch) < 127).strip().upper()
@@ -227,6 +247,13 @@ def handle(line):
             if do_place(angle):
                 display.show(Image.YES)
                 reply("DONE,PLACE")
+            else:
+                reply("ERR,ABORTED")
+        elif cmd == "GO" or cmd == "1":
+            display.show(Image.SQUARE)
+            if do_go():
+                display.show(Image.YES)
+                reply("DONE,GO")
             else:
                 reply("ERR,ABORTED")
         elif cmd == "NG":

@@ -24,6 +24,13 @@
     warn: '#D9534F',         // Fault / Emergency STOP only
   };
 
+  // 실물 받기 작업에서 손에 쥔 공 (물빠진 색)
+  const HELD_BALL = {
+    red: { name: '빨간 공', color: '#C0716A', dim: 'rgba(192, 113, 106, 0.18)' },
+    blue: { name: '파란 공', color: '#6F8FB5', dim: 'rgba(111, 143, 181, 0.18)' },
+    green: { name: '초록 공', color: '#79A07A', dim: 'rgba(121, 160, 122, 0.18)' },
+  };
+
   const PARTS = [
     {
       id: 1,
@@ -1368,7 +1375,7 @@
     drawLine3D(ctx, { x: 0, y: 0.05, z: 0 }, { x: 0, y: 0.05, z: r }, basis, cam, w, h, 'rgba(154, 162, 172, 0.45)', 1, [3, 4]);
     drawLine3D(ctx, { x: 0, y: 0.08, z: 0 }, { x: Math.sin(yawNow) * r, y: 0.08, z: Math.cos(yawNow) * r }, basis, cam, w, h, PALETTE.accent, 1.8);
 
-    // 받기 단계: 손바닥 앞 '올려 주세요' 자리
+    // 받기 단계: 손바닥 앞 '올려 주십시오' 자리
     if (world.receiving) {
       drawCircle3D(ctx, kin.gripCenter, 2.6, kin.palmRight, kin.palmUp, 20, basis, cam, w, h,
         'rgba(214, 158, 114, 0.85)', 1.4, 'rgba(214, 158, 114, 0.10)', [5, 4]);
@@ -1379,14 +1386,12 @@
     // 쥔 부품
     if (world.heldPart) {
       const c = kin.gripCenter;
-      if (world.heldPart === 'nut') {
-        drawCircle3D(ctx, c, 1.3, kin.palmRight, kin.palmFront, 6, basis, cam, w, h, PALETTE.pass, 1.8, PALETTE.passDim);
-        drawCircle3D(ctx, c, 0.55, kin.palmRight, kin.palmFront, 12, basis, cam, w, h, PALETTE.pass, 1.2);
+      const ball = HELD_BALL[world.heldPart];
+      if (ball) {
+        drawCircle3D(ctx, c, 1.3, kin.palmRight, kin.palmFront, 20, basis, cam, w, h, ball.color, 1.8, ball.dim);
+        drawCircle3D(ctx, c, 1.3, kin.palmRight, kin.palmUp, 20, basis, cam, w, h, ball.color, 1.2);
       } else {
-        const a = vAdd(c, vScale(kin.palmRight, -1.8));
-        const b = vAdd(c, vScale(kin.palmRight, 1.8));
-        drawLine3D(ctx, a, b, basis, cam, w, h, PALETTE.pass, 3);
-        drawCircle3D(ctx, a, 0.75, kin.palmUp, kin.palmFront, 6, basis, cam, w, h, PALETTE.pass, 1.6, PALETTE.passDim);
+        drawCircle3D(ctx, c, 1.3, kin.palmRight, kin.palmFront, 20, basis, cam, w, h, PALETTE.pass, 1.8, PALETTE.passDim);
       }
     }
 
@@ -1397,11 +1402,11 @@
     if (pPalm) layout.reserve(pPalm.x - 30, pPalm.y - 40, 60, 80);
     if (world.heldPart) {
       const pg = projectPoint(kin.gripCenter, basis, cam, w, h);
-      if (pg) drawLayoutLabel(ctx, layout, pg.x, pg.y - 18, world.heldPart === 'nut' ? '너트' : '볼트',
-        { font: LABEL_FONT_BOLD, color: PALETTE.pass, border: PALETTE.pass, height: 20 });
+      if (pg) drawLayoutLabel(ctx, layout, pg.x, pg.y - 18, (HELD_BALL[world.heldPart] || { name: '공' }).name,
+        { font: LABEL_FONT_BOLD, color: (HELD_BALL[world.heldPart] || {}).color || PALETTE.pass, border: (HELD_BALL[world.heldPart] || {}).color || PALETTE.pass, height: 20 });
     } else if (world.receiving) {
       const pg = projectPoint(kin.gripCenter, basis, cam, w, h);
-      if (pg) drawLayoutLabel(ctx, layout, pg.x, pg.y + 30, '여기에 올려 주세요',
+      if (pg) drawLayoutLabel(ctx, layout, pg.x, pg.y + 30, '여기에 올려 주십시오',
         { font: LABEL_FONT_BOLD, color: PALETTE.accent, border: PALETTE.accent, height: 20, prefer: 'below' });
     }
     const p0 = projectPoint({ x: 0, y: 0.1, z: r + 1.2 }, basis, cam, w, h);
