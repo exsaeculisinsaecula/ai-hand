@@ -4,7 +4,7 @@
   .venv\\Scripts\\python.exe handover_app.py        (Windows, run_windows.bat)
   .venv/bin/python handover_app.py --mock            # 로봇 없이 시험 (모의 micro:bit)
 
-과정: 입력(볼트/너트/와셔) → 손 펴기 → 웹캠 로컬 인식 → 쥐기 → 왼쪽(180°) 회전·내려놓기 → 복귀
+과정: 입력(빨간 공/파란 공/초록 공) → 손 펴기 → 웹캠 로컬 인식 → 쥐기 → 왼쪽(180°) 회전·내려놓기 → 복귀
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from collections import deque
 import functools
 import http.server
 import json
+import re
 from pathlib import Path
 import sys
 import threading
@@ -23,7 +24,7 @@ import webbrowser
 import cv2
 
 from controller.handover import HandoverTask
-from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts
+from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts, find_balls
 
 ROOT = Path(__file__).resolve().parent
 
@@ -186,7 +187,7 @@ class RobotLink:
                 if b">>>" in got:
                     break
             if b">>>" not in got:
-                self.log("ERR", "펌웨어 설치: 프로그램을 멈추지 못했어요 (REPL 프롬프트 없음)")
+                self.log("ERR", "펌웨어 설치: 프로그램을 멈추지 못했습니다 (REPL 프롬프트 없음)")
                 return False
             # 2) raw REPL 진입
             ser.reset_input_buffer()
@@ -244,7 +245,7 @@ class RobotLink:
                     self.log("SYS", f"펌웨어 v{want} 설치 완료")
                 elif self._install_tries >= 2:
                     self._install_block_until = time.monotonic() + 60
-                    self.log("ERR", "펌웨어 자동 설치 실패 — 60초 뒤 다시 시도해요 (기존 펌웨어로 계속 연결)")
+                    self.log("ERR", "펌웨어 자동 설치 실패 — 60초 뒤 다시 시도합니다 (기존 펌웨어로 계속 연결)")
             if ver != want:
                 self.fw_warning = f"펌웨어 v{ver or '?'} (최신 v{want} 아님)"
             else:
@@ -303,7 +304,7 @@ class RobotLink:
                 self._hb_pending = False
             if now - self.last_rx > self.NO_RESPONSE_S and self.status == "connected":
                 self.status = "no_response"
-                self.log("ERR", "로봇이 응답하지 않아요 (전원 · 케이블 확인)")
+                self.log("ERR", "로봇이 응답하지 않습니다 (전원 · 케이블 확인)")
 
 
 class MockLink:
@@ -338,7 +339,129 @@ class MockLink:
         return {"status": "connected", "port": "mock", "fw": "mock", "fw_expected": "mock", "last_rx_s": 0.0}
 
 
-TRAY_MIN_CONF = 0.45          # 쟁반 안내에 쓸 YOLO 최소 점수 (겹친 오탐 0.3 대 제외)
+BALL_BGR = {"red": (106, 113, 192), "blue": (181, 143, 111), "green": (122, 160, 121)}   # 대시보드 물빠진 공 색
+TRAY_MIN_CONF = 0.45          # 쟁반 안내에 쓸 최소 점수 (색 규칙: 경계 색 0.4 는 제외)
+
+
+MAX_VIEWS = 4                 # 카메라 칸 분할: 1~4 (1번 칸 = 손 카메라)
+VIEW_SIZE = (640, 480)        # 추가 카메라 해상도: 웹캠 여러 대를 한 USB 허브에 꽂아도 대역폭이 남도록 작게 + MJPG
+
+
+def draw_tray_items(vis, tray: dict, k: float, th: int) -> None:
+    """쟁반에서 찾은 공: 공마다 그 색 상자 + 번호, 요청한 공은 굵게 + PICK THIS"""
+    for d in tray.get("items", []):
+        bx, by, bw, bh = d["box"]
+        picked = tray.get("pick") == d["n"]
+        c = BALL_BGR.get(d["label"], (150, 150, 150))
+        cv2.rectangle(vis, (bx, by), (bx + bw, by + bh), c, th + (3 if picked else 0))
+        cv2.putText(vis, f"#{d['n']} {d['label'].upper()}", (bx, by + bh + int(28 * k)), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8 * k, c, th + 1, cv2.LINE_AA)
+        if picked:
+            ty = by - int(14 * k) if by > int(50 * k) else by + bh + int(64 * k)
+            cv2.putText(vis, "PICK THIS", (bx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.9 * k, c, th + 1, cv2.LINE_AA)
+
+
+class ViewCam:
+    """분할 화면의 추가 카메라 한 대 (웹캠 번호 또는 시험용 사진·영상 경로). 자기 스레드에서 읽고 JPEG 로 보낸다."""
+
+    def __init__(self, rt: "Runtime", slot: int, src):
+        self.rt, self.slot, self.src = rt, slot, src
+        self.frame = None
+        self.jpeg: bytes | None = None
+        self.error = ""
+        self.fps = 0.0
+        self.alive = True
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def stop(self) -> None:
+        self.alive = False
+
+    def _open(self):
+        src = self.src
+        if isinstance(src, str) and not src.isdigit():
+            img = cv2.imread(src)
+            if img is not None:
+                return "image", img
+            cap = cv2.VideoCapture(src)                      # 영상 파일
+            return ("cap", cap) if cap.isOpened() else (None, None)
+        idx = int(src)
+        if idx in self.rt.cam_disabled:
+            return None, None
+        cap = cv2.VideoCapture(idx)
+        if cap.isOpened():
+            # 웹캠 여러 대: 압축(MJPG) + 작은 해상도로 USB 대역폭을 나눠 씀 (지원 안 하는 카메라는 무시하고 기본값)
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, VIEW_SIZE[0])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, VIEW_SIZE[1])
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            return "cap", cap
+        cap.release()
+        return None, None
+
+    def _loop(self) -> None:
+        kind, src = None, None
+        last = time.perf_counter()
+        fails = 0
+        while self.alive and self.rt.running:
+            if self.src == self.rt.camera_index:             # 손 카메라와 같은 번호 → 다시 열지 않고 그 영상을 씀
+                self.frame, self.jpeg, self.error, self.fps = self.rt.frame, self.rt.jpeg, self.rt.cam_error, self.rt.fps
+                time.sleep(0.07)
+                continue
+            if kind == "cap" and self.off():               # 대시보드에서 이 카메라를 끔 → 바로 놓아 줌
+                src.release()
+                kind, src = None, None
+            if kind is None:
+                kind, src = self._open()
+                if kind is None:
+                    self.error = "꺼 둔 카메라입니다" if self.off() else f"카메라 {self.src}번이 연결되지 않았습니다"
+                    self.frame = self.jpeg = None
+                    time.sleep(2.0)
+                    continue
+                self.error = ""
+                fails = 0
+            if kind == "image":
+                frame = src.copy()
+                time.sleep(0.1)
+            else:
+                ok, frame = src.read()
+                if not ok:
+                    if not str(self.src).isdigit():          # 영상 파일 끝 → 처음부터
+                        src.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    fails += 1
+                    if fails > 40:
+                        src.release()
+                        kind, src = None, None
+                    time.sleep(0.05)
+                    continue
+                fails = 0
+            self.frame = frame
+            vis = frame.copy()
+            h, w = vis.shape[:2]
+            k = max(1.0, w / 640)
+            th = max(2, int(2 * k))
+            if self.rt.tray_slot == self.slot:
+                draw_tray_items(vis, self.rt.task.tray, k, th)
+                cv2.putText(vis, "TRAY", (int(12 * k), int(36 * k)), cv2.FONT_HERSHEY_SIMPLEX, 1.0 * k,
+                            (240, 240, 240), th + 1, cv2.LINE_AA)
+            ok2, buf = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ok2:
+                self.jpeg = buf.tobytes()
+            now = time.perf_counter()
+            self.fps = 0.9 * self.fps + 0.1 / max(now - last, 1e-3)
+            last = now
+            if kind == "cap":
+                time.sleep(0.01)
+        if kind == "cap" and src is not None:
+            src.release()
+
+    def off(self) -> bool:
+        return str(self.src).isdigit() and int(self.src) in self.rt.cam_disabled
+
+    def info(self) -> dict:
+        return {"slot": self.slot, "src": self.src, "ok": self.jpeg is not None and not self.error, "off": self.off(),
+                "error": self.error, "fps": round(self.fps, 1),
+                "shared": self.src == self.rt.camera_index}
 
 
 class Runtime:
@@ -354,17 +477,25 @@ class Runtime:
         self.task.frame_source = lambda: self.frame           # VLM 교차 확인용 현재 프레임
         self.clf = PartClassifier()                 # YOLO 를 못 쓸 때의 대체 판별기
         self.yolo = None
-        self.detector_info = "모양 규칙 (YOLO 없음)"
+        self.detector_info = "색 규칙 (공 감지 · VLM 이 꺼져 있을 때 판정)"
         if model_path and Path(model_path).exists():
             try:
                 self.yolo = YoloParts(model_path, conf=conf)
                 self.detector_info = f"YOLO {Path(model_path).name} · {', '.join(self.yolo.names.values())}"
             except Exception as exc:                # ultralytics/torch 미설치 등
-                self.detector_info = f"모양 규칙 (YOLO 불러오기 실패: {exc.__class__.__name__})"
+                self.detector_info = f"색 규칙 (YOLO 불러오기 실패: {exc.__class__.__name__})"
         self.task._log("SYS", f"인식기: {self.detector_info}")
         if vlm is not None:
-            self.task._log("SYS", f"VLM: {vlm.model} — 요청 해석 보조 + YOLO 점수 {vlm.verify_below:.2f} 미만이면 교차 확인")
-            vlm.warmup()
+            seen_online = [False]
+
+            def _vlm_changed(online: bool) -> None:
+                if online:
+                    seen_online[0] = True
+                    self.task._log("SYS", f"VLM 연결됨: {vlm.model} ({vlm.url}) — 검색창 문장 이해 + 손 위 공 확인")
+                else:                               # 처음부터 꺼져 있으면 조용히, 쓰다가 끊기면 알람
+                    self.task._log("ERR" if seen_online[0] else "SYS",
+                                   f"VLM 꺼짐: {vlm.status_note} — 단어 규칙·색 규칙으로 동작")
+            vlm.start_monitor(on_change=_vlm_changed)
         self.camera_index = camera_index
         self._cam_switch = False
         self.cam_disabled: set[int] = set(int(i) for i in self.read_settings().get("camera_disabled", []))
@@ -385,9 +516,215 @@ class Runtime:
         self._cam_gen = 0                 # 카메라 스레드 세대: 멈춘 스레드를 버리고 새로 시작할 때 증가
         self._cam_opened_t = 0.0
         self._last_frame_t = 0.0
+        # 분할 화면: 2~4번 칸에 추가 카메라 (설정에 저장), 그중 한 칸을 쟁반으로
+        st = self.read_settings()
+        self.split = max(1, min(MAX_VIEWS, int(st.get("split", 1))))
+        self.views: dict[int, ViewCam] = {}
+        self.tray_slot: int | None = st.get("tray_slot")
+        self._tray_view_items: list[dict] = []
+        # 화면 배치: CAM 1~4 자리에 어떤 칸을 둘지 ("hand" = 손 카메라, "2"~"4" = 추가 카메라)
+        order = [str(x) for x in (st.get("view_order") or [])]
+        self.view_order = order if sorted(order) == ["2", "3", "4", "hand"] else ["hand", "2", "3", "4"]
         threading.Thread(target=self._camera_loop, args=(0,), daemon=True).start()
         threading.Thread(target=self._infer_loop, daemon=True).start()
         threading.Thread(target=self._task_loop, daemon=True).start()
+        threading.Thread(target=self._tray_view_loop, daemon=True).start()
+        self.auto_cams = bool(st.get("auto_cams", True))   # 카메라가 새로 잡히면 빈 CAM 칸에 자동으로 띄움
+        self._probe_lock = threading.Lock()
+        threading.Thread(target=self._discovery_loop, daemon=True).start()
+        for k, src in (st.get("view_sources") or {}).items():
+            if src is not None and 2 <= int(k) <= MAX_VIEWS:
+                self.views[int(k)] = ViewCam(self, int(k), src)
+
+    # ---- 분할 화면 ----
+    def set_view(self, slot: int, src) -> dict:
+        if not 2 <= slot <= MAX_VIEWS:
+            return {"ok": False, "reply": "칸 번호가 잘못됐습니다"}
+        old = self.views.pop(slot, None)
+        if old is not None:
+            old.stop()
+        if src in (None, "", "none"):
+            if self.tray_slot == slot:
+                self.tray_slot = None
+            msg = f"{slot}번 칸을 비웠습니다"
+        else:
+            src = int(src) if str(src).isdigit() else str(src)
+            self.views[slot] = ViewCam(self, slot, src)
+            msg = f"{slot}번 칸: 카메라 {src}" + (" (손 카메라와 같은 영상)" if src == self.camera_index else "")
+        self._save_views()
+        self.task._log("SYS", msg)
+        return {"ok": True, "reply": msg}
+
+    def visible_slots(self) -> list[str]:
+        return self.view_order[: self.split]
+
+    def set_split(self, n: int) -> dict:
+        self.split = max(1, min(MAX_VIEWS, int(n)))
+        shown = self.visible_slots()
+        for k in [k for k in self.views if str(k) not in shown]:   # 화면에서 빠진 칸의 카메라는 닫음 (USB 대역폭 · 불빛)
+            self.views.pop(k).stop()
+            if self.tray_slot == k:
+                self.tray_slot = None
+        self._save_views()
+        return {"ok": True, "reply": f"카메라 {self.split}분할"}
+
+    def set_tray_slot(self, slot) -> dict:
+        slot = int(slot) if slot not in (None, "", "none") else None
+        if slot is not None and slot not in self.views:
+            return {"ok": False, "reply": "먼저 그 칸에 카메라를 고르십시오"}
+        self.tray_slot = None if slot == self.tray_slot else slot          # 같은 칸을 다시 누르면 해제
+        self._save_views()
+        msg = f"{self.tray_slot}번 칸을 쟁반 카메라로 씁니다 (색 규칙)" if self.tray_slot else "쟁반 카메라 해제 — 손 카메라 화면에서 찾습니다"
+        self.task._log("SYS", msg)
+        return {"ok": True, "reply": msg}
+
+    def _tray_view(self):
+        """쟁반으로 지정한 칸 (손 카메라와 다른 카메라일 때만)"""
+        tv = self.views.get(self.tray_slot) if self.tray_slot else None
+        return tv if tv is not None and tv.src != self.camera_index else None
+
+    def _tray_view_loop(self) -> None:
+        """쟁반 칸: 손 카메라가 없어도 따로 돈다. 요청 중일 때만 초당 5번 색 규칙으로 공을 찾음."""
+        while self.running:
+            time.sleep(0.2)
+            tv = self._tray_view()
+            if tv is None or self.yolo is not None:
+                continue
+            active = self.task.target is not None and self.task.state in ("REQUEST", "RECEIVE")
+            tf = tv.frame
+            if not active or tf is None:
+                self._tray_view_items = []
+            else:
+                fw = tf.shape[1]
+                self._tray_view_items = [{"label": d["label"], "conf": d["conf"], "box": d["box"],
+                                          "xn": round((d["box"][0] + d["box"][2] / 2) / fw, 3)}
+                                         for d in find_balls(tf) if d["conf"] >= TRAY_MIN_CONF]
+            with self.lock:
+                self.task.update_tray(list(self._tray_view_items))
+
+    def set_view_order(self, order) -> dict:
+        order = [str(x) for x in (order or [])]
+        if sorted(order) != ["2", "3", "4", "hand"]:
+            return {"ok": False, "reply": "배치가 잘못됐습니다"}
+        self.view_order = order
+        self._save_views()
+        return {"ok": True, "reply": "카메라 배치를 바꿨습니다"}
+
+    # ---- 카메라 자동 감지: 운영체제가 아는 카메라 수가 바뀌면 한 번만 열어 보고 빈 칸에 배치 ----
+    @staticmethod
+    def os_camera_count() -> int | None:
+        """카메라를 열지 않고 (불이 켜지지 않게) 연결된 카메라 수만 셈. 모르면 None."""
+        import platform
+        import subprocess
+        try:
+            if platform.system() == "Windows":
+                r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                    "@(Get-PnpDevice -PresentOnly -Class Camera,Image -ErrorAction SilentlyContinue).Count"],
+                                   capture_output=True, text=True, timeout=8,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                return int(r.stdout.strip() or 0)
+            if platform.system() == "Linux":
+                from glob import glob
+                return len(glob("/sys/class/video4linux/video*"))
+            return len(Runtime.device_names())
+        except Exception:
+            return None
+
+    def probe_cameras(self) -> list[int]:
+        """지금 열리는 카메라 번호들 (쓰는 중인 카메라는 다시 열지 않고 그대로 포함)."""
+        with self._probe_lock:
+            in_use = self.cameras_in_use()
+            found, misses = [], 0
+            for idx in range(self.MAX_CAMERAS):
+                if idx in self.cam_disabled:
+                    continue
+                if idx in in_use:                       # 쓰는 중인 카메라는 다시 열지 않음 (윈도우는 한 프로그램만 열 수 있음)
+                    role = in_use[idx]
+                    v = self.views.get(int(role[4:])) if role.startswith("view") else None
+                    alive = (self.jpeg is not None or not self.cam_error) if role == "hand" else                         (v is not None and (v.jpeg is not None or not v.error))
+                    if alive:
+                        found.append(idx)
+                        misses = 0
+                    else:
+                        misses += 1
+                    continue
+                cap = cv2.VideoCapture(idx)
+                ok = cap.isOpened() and cap.read()[0]
+                cap.release()
+                if ok:
+                    found.append(idx)
+                    misses = 0
+                else:
+                    misses += 1
+                    if misses >= 3 and idx >= 2:
+                        break
+            return found
+
+    def auto_place(self, found: list[int]) -> list[str]:
+        """찾은 카메라를 CAM 칸에: 손 카메라는 지금 번호가 살아 있으면 그대로, 아니면 첫 번째 카메라.
+        나머지는 보이는 순서대로 빈 칸에, 모자라면 분할을 늘림 (최대 4)."""
+        notes = []
+        if not found:
+            return notes
+        if self.camera_index not in found and not self.camera_off():   # 일부러 끈 손 카메라는 바꾸지 않음
+            new_hand = found[0]
+            if new_hand != self.camera_index:
+                self.select_camera("hand", new_hand)
+                notes.append(f"손 카메라 → {new_hand}번")
+        shown = {v.src for v in self.views.values()}
+        extra = [i for i in found if i != self.camera_index and i not in shown]
+        if not extra:
+            return notes
+        want = min(MAX_VIEWS, 1 + len(self.views) + len(extra))
+        if want > self.split:
+            self.set_split(want)
+        for idx in extra:
+            free = [k for k in self.visible_slots() if k != "hand" and int(k) not in self.views]
+            if not free:
+                notes.append(f"{idx}번은 칸이 모자라 띄우지 못함 (최대 {MAX_VIEWS}칸)")
+                continue
+            self.set_view(int(free[0]), idx)
+            notes.append(f"{idx}번 → CAM {self.view_order.index(free[0]) + 1}")
+        return notes
+
+    def _discovery_loop(self) -> None:
+        last = None
+        time.sleep(3.0)                                  # 손 카메라가 먼저 열리도록
+        while self.running:
+            n = self.os_camera_count()
+            if self.auto_cams and (n is None and last is None or n is not None and n != last):
+                try:
+                    found = self.probe_cameras()
+                    if n:                                # 카메라 한 대가 번호 두 개로 열리는 경우가 있어 운영체제가 센 수까지만
+                        keep = [i for i in found if i == self.camera_index][:1]
+                        found = keep + [i for i in found if i not in keep][: max(0, n - len(keep))]
+                    notes = self.auto_place(found)
+                    if notes:
+                        self.task._log("SYS", "[카메라 자동] " + " · ".join(notes))
+                    elif last is not None and n is not None and n < last:
+                        self.task._log("SYS", "[카메라 자동] 카메라가 빠졌습니다 — 다시 꽂으면 그 칸에 다시 연결됩니다")
+                except Exception as exc:
+                    self.task._log("ERR", f"[카메라 자동] 찾기 오류: {exc.__class__.__name__}")
+            last = n if n is not None else (last if last is not None else -1)
+            time.sleep(4.0 if n is not None else 15.0)
+
+    def set_auto_cams(self, on: bool) -> dict:
+        self.auto_cams = bool(on)
+        self._save_settings(auto_cams=self.auto_cams)
+        notes = []
+        if self.auto_cams:
+            notes = self.auto_place(self.probe_cameras())
+        msg = ("카메라 자동 배치 켬" + (" — " + " · ".join(notes) if notes else "")) if self.auto_cams else "카메라 자동 배치 끔"
+        self.task._log("SYS", msg)
+        return {"ok": True, "reply": msg}
+
+    def _save_views(self) -> None:
+        self._save_settings(split=self.split, tray_slot=self.tray_slot, view_order=self.view_order,
+                            view_sources={str(k): v.src for k, v in self.views.items()})
+
+    def view_jpeg(self, slot: int):
+        v = self.views.get(slot)
+        return v.jpeg if v is not None else None
 
     # ---- settings ----
     def _load_roi(self):
@@ -448,22 +785,15 @@ class Runtime:
             cv2.rectangle(vis, (x0, y0), (x1, y1), col, 1)
         cv2.putText(vis, "TOUCH" if touching else "HAND ZONE", (x0 + 6, y1 - 10),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7 * k, col, th, cv2.LINE_AA)
-        # 쟁반: YOLO 가 고른 부품 (요청 중일 때)
+        # 쟁반: 요청한 공 (요청 중일 때, 색 규칙 또는 YOLO)
         tray = self.task.tray
         if self.tray_roi:
             tx0, ty0, tx1, ty1 = (int(self.tray_roi[0] * w), int(self.tray_roi[1] * h),
                                   int(self.tray_roi[2] * w), int(self.tray_roi[3] * h))
             cv2.rectangle(vis, (tx0, ty0), (tx1, ty1), (170, 170, 170), 1)
             cv2.putText(vis, "TRAY", (tx0 + 6, ty0 + int(24 * k)), cv2.FONT_HERSHEY_SIMPLEX, 0.6 * k, (170, 170, 170), th)
-        for d in tray["items"]:
-            bx, by, bw, bh = d["box"]
-            picked = tray["pick"] == d["n"]
-            c = (40, 200, 40) if picked else (150, 150, 150)
-            cv2.putText(vis, f"#{d['n']}", (bx, by + bh + int(28 * k)), cv2.FONT_HERSHEY_SIMPLEX, 0.9 * k, c, th + 1, cv2.LINE_AA)
-            if picked:
-                cv2.rectangle(vis, (bx - 6, by - 6), (bx + bw + 6, by + bh + 6), c, th + 3)
-                cv2.putText(vis, "PICK THIS", (bx, max(20, by - int(40 * k))), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.9 * k, c, th + 1, cv2.LINE_AA)
+        if not (self.tray_slot and self.tray_slot in self.views):
+            draw_tray_items(vis, tray, k, th)
         # 탐지 박스
         for d in self.overlay.get("dets", []):
             bx, by, bw, bh = d["box"]
@@ -483,9 +813,11 @@ class Runtime:
         """지금 고른 카메라가 꺼짐 목록에 있으면 열지 않는다."""
         return self.camera_index in self.cam_disabled
 
-    def _open_camera(self):
+    def _open_camera(self, gen: int = 0):
         self._cam_switch = False
         while self.running:
+            if gen != self._cam_gen:                # 새 카메라 스레드가 대신함 → 이 스레드는 열지 않고 끝냄 (같은 카메라를 두 번 여는 것 방지)
+                return None
             if self.camera_off():                   # 꺼 둔 카메라: 열지 않고 켤 때까지 대기
                 self.cam_error = ""
                 self.jpeg = None
@@ -494,31 +826,41 @@ class Runtime:
                 if self._cam_switch:
                     self._cam_switch = False
                 continue
-            cap = cv2.VideoCapture(self.camera_index)
+            idx = self.camera_index
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened() and (gen != self._cam_gen or idx != self.camera_index):
+                cap.release()                       # 여는 사이 다른 스레드가 대신했거나 번호가 바뀜 → 다시
+                if gen != self._cam_gen:
+                    return None
+                continue
             if cap.isOpened():
                 self.cam_error = ""
                 self._cam_opened_t = time.monotonic()
-                self.task._log("SYS", f"USB 웹캠({self.camera_index}번) 연결됨")
+                self._opened_index = idx
+                self._cam_switch = False            # 지금 고른 번호를 열었으니 바꾸기 요청은 처리됨
+                self.task._log("SYS", f"USB 웹캠({idx}번) 연결됨")
                 return cap
             cap.release()
-            self.cam_error = f"USB 웹캠({self.camera_index}번)이 연결되지 않았어요 — 꽂으면 자동으로 연결돼요"
+            self.cam_error = f"USB 웹캠({self.camera_index}번)이 연결되지 않았습니다 — 꽂으면 자동으로 연결됩니다"
             self.jpeg = None
             time.sleep(2.0)
         return None
 
     def _camera_loop(self, gen: int = 0) -> None:
-        cap = self._open_camera()
+        cap = self._open_camera(gen)
         fails = 0
         last = time.perf_counter()
         while self.running and cap is not None:
             if gen != self._cam_gen:                # 감시 장치가 새 스레드를 띄움 → 이 스레드는 정리하고 끝냄
                 cap.release()
                 return
+            if self._cam_switch and getattr(self, "_opened_index", None) == self.camera_index and not self.camera_off():
+                self._cam_switch = False            # 이미 그 번호를 열어 둠 → 다시 열지 않음
             if self._cam_switch or self.camera_off():   # 다른 카메라를 고름 / 이 카메라를 끔
                 cap.release()
                 self.jpeg = None
                 self.fps = 0.0
-                cap = self._open_camera()
+                cap = self._open_camera(gen)
                 fails = 0
                 continue
             ok, frame = cap.read()
@@ -529,9 +871,9 @@ class Runtime:
                 fails += 1
                 if fails > 40:                      # 약 2초 동안 프레임 없음 = 분리
                     cap.release()
-                    self.task._log("SYS", "USB 웹캠 연결이 끊겼어요 — 다시 연결을 기다려요")
+                    self.task._log("SYS", "USB 웹캠 연결이 끊겼습니다 — 다시 연결을 기다립니다")
                     self.jpeg = None
-                    cap = self._open_camera()
+                    cap = self._open_camera(gen)
                     fails = 0
                 time.sleep(0.05)
                 continue
@@ -608,9 +950,13 @@ class Runtime:
                 self.task.update_tray(tray_items)
 
     def _tray_items(self, frame, dets) -> list[dict]:
-        """손 영역 밖(또는 지정한 쟁반 영역 안)의 볼트·너트 탐지"""
+        """손 영역 밖(또는 지정한 쟁반 영역 안)의 공 탐지. YOLO 가 없으면 색 규칙(find_balls)."""
         if self.yolo is None:
-            return []
+            if self.task.target is None or self.task.state not in ("REQUEST", "RECEIVE"):
+                return []                           # 요청 중일 때만 찾음
+            if self._tray_view() is not None:
+                return list(self._tray_view_items)   # 쟁반 칸은 자기 스레드(_tray_view_loop)가 찾음
+            dets = find_balls(frame, roi=self.tray_roi, exclude=self.palm_roi)
         h, w = frame.shape[:2]
         px0, py0, px1, py1 = self.palm_roi
         out = []
@@ -620,7 +966,7 @@ class Runtime:
             in_palm = px0 <= cx <= px1 and py0 <= cy <= py1
             in_tray = (self.tray_roi[0] <= cx <= self.tray_roi[2] and self.tray_roi[1] <= cy <= self.tray_roi[3]) \
                 if self.tray_roi else not in_palm
-            if in_tray and not in_palm and d["label"] in ("bolt", "nut") and d["conf"] >= TRAY_MIN_CONF:
+            if in_tray and not in_palm and d["label"] in LABELS and d["conf"] >= TRAY_MIN_CONF:
                 tx0, tx1 = (self.tray_roi[0], self.tray_roi[2]) if self.tray_roi else (0.0, 1.0)
                 xn = round(max(0.0, min(1.0, (cx - tx0) / max(1e-6, tx1 - tx0))), 3)   # 쟁반 안 가로 위치 0=왼쪽 끝
                 out.append({"label": d["label"], "conf": round(float(d["conf"]), 2), "box": tuple(d["box"]), "xn": xn})
@@ -653,7 +999,7 @@ class Runtime:
         self._cam_opened_t = 0.0
         self.jpeg = None
         self.fps = 0.0
-        self.cam_error = f"카메라 {self.camera_index}번이 영상을 보내지 않아 다시 여는 중이에요 (USB 연결 · 허브 전원 확인)"
+        self.cam_error = f"카메라 {self.camera_index}번이 영상을 보내지 않아 다시 여는 중입니다 (USB 연결 · 허브 전원 확인)"
         self.task._log("ERR", f"카메라 {self.camera_index}번 영상 멈춤 {since:.0f}초 — 다시 엶")
         threading.Thread(target=self._camera_loop, args=(self._cam_gen,), daemon=True).start()
 
@@ -690,9 +1036,16 @@ class Runtime:
 
     def cameras_in_use(self) -> dict:
         """{번호: 역할} — 지금 이 프로그램이 쓰는 카메라 (다시 열지 않고 최근 프레임으로 미리보기)"""
-        return {self.camera_index: "hand"}
+        used = {self.camera_index: "hand"}
+        for k, v in self.views.items():
+            if isinstance(v.src, int) and v.src not in used:
+                used[v.src] = f"view{k}"
+        return used
 
     def _frame_for_role(self, role: str):
+        if role.startswith("view"):
+            v = self.views.get(int(role[4:]))
+            return v.frame if v is not None else None
         return self.frame
 
     @staticmethod
@@ -746,25 +1099,29 @@ class Runtime:
         if on:
             self.cam_disabled.discard(index)
             self._cam_switch = True                 # 쓰는 카메라였다면 다시 엶
-            msg = f"{index}번 카메라를 켰어요"
+            msg = f"{index}번 카메라를 켰습니다"
         else:
             self.cam_disabled.add(index)
-            msg = f"{index}번 카메라를 껐어요"
+            msg = f"{index}번 카메라를 껐습니다"
         self._save_settings(camera_disabled=sorted(self.cam_disabled))
         self.task._log("SYS", msg)
         return {"ok": True, "reply": msg}
 
     def select_camera(self, role: str, index: int) -> dict:
+        if role.startswith("view"):                  # 카메라 선택 창에서 분할 칸 고르기
+            if index in self.cam_disabled:
+                return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라입니다 — 먼저 켜 주십시오"}
+            return self.set_view(int(role[4:]), index)
         if role != "hand":
-            return {"ok": False, "reply": "이 모드에서는 손 카메라만 고를 수 있어요"}
+            return {"ok": False, "reply": "고를 수 없는 칸입니다"}
         if index in self.cam_disabled:
-            return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라예요 — 먼저 켜 주세요"}
+            return {"ok": False, "reply": f"{index}번은 꺼 둔 카메라입니다 — 먼저 켜 주십시오"}
         if index == self.camera_index:
-            return {"ok": True, "reply": f"이미 {index}번 카메라를 쓰고 있어요"}
+            return {"ok": True, "reply": f"이미 {index}번 카메라를 쓰고 있습니다"}
         self.camera_index = index
         self._cam_switch = True
         self._save_settings(camera_index=index)
-        self.task._log("SYS", f"카메라를 {index}번으로 바꿨어요")
+        self.task._log("SYS", f"카메라를 {index}번으로 바꿨습니다")
         return {"ok": True, "reply": f"{index}번 카메라로 바꾸는 중"}
 
     def _camera_ok(self) -> bool:
@@ -776,7 +1133,9 @@ class Runtime:
             snap["is_mock"] = self.link.is_mock
             snap["port"] = self.link.port
             snap["robot"] = self.link.info()
-            snap["camera_roles"] = ["hand"]
+            snap["camera_roles"] = [("hand" if k == "hand" else f"view{k}") for k in self.visible_slots()]
+            snap["view_order"] = list(self.view_order)
+            snap["auto_cams"] = self.auto_cams
             snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
             snap["camera_disabled"] = sorted(self.cam_disabled)
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
@@ -784,6 +1143,10 @@ class Runtime:
             snap["detector"] = {"name": self.detector_info, "yolo": self.yolo is not None,
                                 "labels": list(self.yolo.names.values()) if self.yolo else list(LABELS)}
             snap["samples"] = self._capture_counts() if self.yolo else self.clf.counts()
+            snap["vlm"] = self.task.vlm.status() if self.task.vlm is not None else {"online": False, "note": "--no-vlm"}
+            snap["split"] = self.split
+            snap["views"] = [v.info() for v in sorted(self.views.values(), key=lambda v: v.slot)]
+            snap["tray_slot"] = self.tray_slot if self.tray_slot in self.views else None
             snap["palm_roi"] = list(self.palm_roi)
             snap["background"] = "receive" if self.recv_bg is not None else ("manual" if self.manual_bg is not None else "none")
             return snap
@@ -791,10 +1154,26 @@ class Runtime:
     CAPTURE_DIR = ROOT / "data" / "captures"
 
     def _capture_counts(self) -> dict:
-        return {l: len(list((self.CAPTURE_DIR / l).glob("*.jpg"))) for l in ("bolt", "nut", "washer")}
+        return {l: len(list((self.CAPTURE_DIR / l).glob("*.jpg"))) for l in LABELS}
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        if a == "view_auto":
+            out = self.set_auto_cams(bool(p.get("on", not self.auto_cams)))
+            st = self.state()
+            st["result"] = out
+            return st
+        if a in ("view_set", "view_split", "view_tray", "view_order"):
+            try:
+                out = (self.set_view(int(p.get("slot", 0)), p.get("src")) if a == "view_set"
+                       else self.set_split(int(p.get("n", 1))) if a == "view_split"
+                       else self.set_view_order(p.get("order")) if a == "view_order"
+                       else self.set_tray_slot(p.get("slot")))
+            except (TypeError, ValueError):
+                out = {"ok": False, "reply": "값이 잘못됐습니다"}
+            st = self.state()
+            st["result"] = out
+            return st
         if a == "camera_scan":                      # 카메라를 여는 데 시간이 걸려 잠금 밖에서
             cams = self.scan_cameras()
             st = self.state()
@@ -805,7 +1184,7 @@ class Runtime:
                 idx, on = int(p["index"]), bool(p.get("on"))
             except (KeyError, TypeError, ValueError):
                 st = self.state()
-                st["result"] = {"ok": False, "reply": "카메라 번호가 잘못됐어요"}
+                st["result"] = {"ok": False, "reply": "카메라 번호가 잘못됐습니다"}
                 return st
             with self.lock:
                 out = self.set_camera_power(idx, on)
@@ -817,7 +1196,7 @@ class Runtime:
                 role, idx = str(p.get("role", "hand")), int(p["index"])
             except (KeyError, TypeError, ValueError):
                 st = self.state()
-                st["result"] = {"ok": False, "reply": "카메라 번호가 잘못됐어요"}
+                st["result"] = {"ok": False, "reply": "카메라 번호가 잘못됐습니다"}
                 return st
             with self.lock:
                 out = self.select_camera(role, idx)
@@ -825,14 +1204,14 @@ class Runtime:
             st["result"] = out
             return st
         pre = None
-        if a == "request" and self.task.vlm is not None and self.link.connected:
+        if a == "request" and self.task.vlm is not None and self.link.connected and not self.task.stopped                 and self.task.state == "IDLE":
             pre = self.task.vlm.interpret(str(p.get("text", "")))   # VLM 은 느릴 수 있어 잠금 밖에서 먼저
         with self.lock:
             out: dict = {}
             if (a in ("request", "raw", "confirm", "hand")
                     or (a == "manual" and p.get("step") not in ("done", "fail", "idle", "placed", "skip_open", "receive"))) \
                     and not self.link.connected:
-                out = {"ok": False, "reply": "로봇이 연결되지 않았어요 — USB · 전원을 확인하세요"}
+                out = {"ok": False, "reply": "로봇이 연결되지 않았습니다 — USB · 전원을 확인하십시오"}
             elif a == "manual":
                 out = self.task.manual(str(p.get("step", "")))
             elif a == "request":
@@ -849,8 +1228,8 @@ class Runtime:
             elif a == "resume":
                 self.task.resume()
             elif a in ("learn", "bg", "roi") and not self._camera_ok():
-                out = {"ok": False, "reply": "카메라가 연결되지 않았어요"}
-            elif a == "learn" and p.get("label") in ("bolt", "nut", "washer"):
+                out = {"ok": False, "reply": "카메라가 연결되지 않았습니다"}
+            elif a == "learn" and p.get("label") in LABELS:
                 lbl = p["label"]
                 if self.yolo is not None:
                     # YOLO 사용 중: 재학습용 사진 저장 (라벨링은 별도)
@@ -860,24 +1239,24 @@ class Runtime:
                     out = {"ok": True, "reply": f"{LABEL_KO[lbl]} 사진 저장 (재학습용)"}
                 else:
                     ok = self.frame is not None and self.clf.add_sample(self.frame, lbl, background=self.manual_bg)
-                    out = {"ok": bool(ok), "reply": f"{LABEL_KO[lbl]} 샘플 저장" if ok else "부품이 안 보여요"}
+                    out = {"ok": bool(ok), "reply": f"{LABEL_KO[lbl]} 샘플 저장" if ok else "공이 안 보입니다"}
                 self.task._log("SYS", f"[데이터] {out['reply']}")
             elif a == "roi":
                 try:
                     ok = self.set_roi(p["x0"], p["y0"], p["x1"], p["y1"])
                 except (KeyError, TypeError, ValueError):
                     ok = False
-                out = {"ok": ok, "reply": "손 영역을 저장했어요" if ok else "영역이 너무 작아요"}
+                out = {"ok": ok, "reply": "손 영역을 저장했습니다" if ok else "영역이 너무 작습니다"}
                 if ok:
                     self.task._log("SYS", f"손 영역 지정: {self.palm_roi}")
             elif a == "bg_clear":
                 self.manual_bg = None
-                out = {"ok": True, "reply": "빈 화면 배경을 지웠어요"}
+                out = {"ok": True, "reply": "빈 화면 배경을 지웠습니다"}
                 self.task._log("SYS", "빈 화면(배경) 지움")
             elif a == "roi_reset":
                 self.palm_roi = self.DEFAULT_ROI
                 self.ROI_FILE.unlink(missing_ok=True)
-                out = {"ok": True, "reply": "손 영역을 기본값으로 되돌렸어요"}
+                out = {"ok": True, "reply": "손 영역을 기본값으로 되돌렸습니다"}
             elif a == "place_angle":
                 try:
                     ang = max(0, min(180, int(float(p.get("value")))))
@@ -886,11 +1265,11 @@ class Runtime:
                     out = {"ok": True, "reply": f"내려놓기 각도 {ang}°"}
                     self.task._log("SYS", f"내려놓기 손목 각도 → {ang}°")
                 except (TypeError, ValueError):
-                    out = {"ok": False, "reply": "각도 형식이 잘못됐어요"}
+                    out = {"ok": False, "reply": "각도 형식이 잘못됐습니다"}
             elif a == "bg":
                 if self.frame is not None:
                     self.manual_bg = self.frame.copy()
-                    out = {"ok": True, "reply": "빈 화면을 배경으로 저장했어요"}
+                    out = {"ok": True, "reply": "빈 화면을 배경으로 저장했습니다"}
                     self.task._log("SYS", "빈 화면(배경) 저장")
             elif a == "raw" and str(p.get("cmd", "")).split(",")[0] in ("OPEN", "GRIP", "PLACE", "HOME", "PAN", "NG"):
                 head = str(p["cmd"]).split(",")[0]
@@ -905,9 +1284,9 @@ class Runtime:
                     self.task._send(cmd)
                     out = {"ok": True}
                 elif not cmd:
-                    out = {"ok": False, "reply": "각도 형식이 잘못됐어요"}
+                    out = {"ok": False, "reply": "각도 형식이 잘못됐습니다"}
                 else:
-                    out = {"ok": False, "reply": "작업 중이거나 정지 상태예요"}
+                    out = {"ok": False, "reply": "작업 중이거나 정지 상태입니다"}
         st = self.state()
         st["result"] = out
         return st
@@ -934,12 +1313,14 @@ def make_handler(rt: Runtime):
             if self.path == "/api/state":
                 return self._json(rt.state())
             if self.path.startswith("/api/video"):
+                m = re.search(r"[?&]view=(\d+)", self.path)
+                slot = int(m.group(1)) if m else 0
                 self.send_response(200)
                 self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
                 self.end_headers()
                 try:
                     while rt.running:
-                        jpg = rt.jpeg
+                        jpg = rt.view_jpeg(slot) if slot >= 2 else rt.jpeg
                         if jpg:
                             self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg + b"\r\n")
                         time.sleep(0.07)
@@ -967,32 +1348,45 @@ def main() -> None:
     ap.add_argument("--mock", action="store_true", help="로봇 없이 모의 micro:bit로 실행")
     ap.add_argument("--camera", type=int, default=None,
                     help="웹캠 번호 (생략하면 대시보드에서 마지막으로 고른 카메라, 처음엔 1). 대시보드 [카메라 선택]으로 바꿀 수 있음")
-    ap.add_argument("--model", type=Path, default=ROOT / "models" / "neuralgrip_best_two.pt",
-                    help="YOLO 가중치 (팀 best_two.pt: 볼트·너트). 없거나 불러오지 못하면 모양 규칙으로 동작")
+    ap.add_argument("--model", type=Path, default=None,
+                    help="YOLO 가중치 (클래스 red/blue/green 인 공 모델만). 생략하면 색 규칙으로 동작. "
+                         "팀 best_two.pt 는 볼트·너트 전용이라 공에는 쓰지 않음")
     ap.add_argument("--conf", type=float, default=0.35, help="YOLO 탐지 최소 신뢰도 (쥐기 판단은 0.6 이상)")
-    ap.add_argument("--vlm", action="store_true", help="VLM(Ollama) 연결: 요청 해석 보조 + 쥐기 전 교차 확인")
+    ap.add_argument("--vlm", action="store_true", help="(기본으로 켜져 있음 — 예전 실행 명령 호환용)")
+    ap.add_argument("--no-vlm", action="store_true", help="VLM(Ollama) 끄기: 단어 규칙·색 규칙만 사용")
     ap.add_argument("--vlm-model", default="gemma3:4b")
-    ap.add_argument("--vlm-url", default="http://localhost:11434")
-    ap.add_argument("--vlm-verify-below", type=float, default=0.70,
-                    help="YOLO 점수가 이보다 낮을 때만 VLM 교차 확인 (0 = 교차 확인 끔, 1 = 항상)")
+    ap.add_argument("--vlm-url", default="http://127.0.0.1:11434")
+    ap.add_argument("--vlm-verify-below", type=float, default=1.0,
+                    help="손 위 공 VLM 확인: 1 = 항상(기본), 0 = 끔(색 규칙만), 그 사이 = 색 규칙 점수가 이보다 낮을 때만")
     ap.add_argument("--tray-roi", default="", help="쟁반 영역 x0,y0,x1,y1 (0~1). 생략하면 손 영역 밖 전체를 쟁반으로 봄")
-    ap.add_argument("--point", action="store_true", help="쟁반에서 고른 부품 쪽으로 손목을 돌려 알려 주기")
+    ap.add_argument("--point", action="store_true", help="쟁반에서 고른 공 쪽으로 손목을 돌려 알려 주기")
     ap.add_argument("--point-left", type=float, default=135, help="쟁반 왼쪽 끝을 향하는 손목 각도 (보정)")
     ap.add_argument("--point-right", type=float, default=45, help="쟁반 오른쪽 끝을 향하는 손목 각도 (보정)")
     ap.add_argument("--point-hold", type=float, default=1.5, help="가리킨 채 멈추는 시간 (초)")
+    ap.add_argument("--view", action="append", default=[], metavar="SRC",
+                    help="분할 화면 2·3·4번 칸 카메라 (웹캠 번호 또는 사진·영상 경로, 여러 번 가능)")
+    ap.add_argument("--tray-view", type=int, default=None, help="쟁반으로 쓸 칸 번호 (2~4)")
     ap.add_argument("--http-port", type=int, default=8090)
     ap.add_argument("--no-browser", action="store_true")
     a = ap.parse_args()
 
     link = MockLink() if a.mock else RobotLink(port_hint=a.port)
     vlm = None
-    if a.vlm:
+    if not a.no_vlm:
         from vision.vlm_bridge import VlmBridge
         vlm = VlmBridge(a.vlm_model, a.vlm_url, verify_below=a.vlm_verify_below)
     tray_roi = tuple(float(v) for v in a.tray_roi.split(",")) if a.tray_roi else None
     if a.camera is None:
         a.camera = int(Runtime.read_settings().get("camera_index", 1))
     rt = Runtime(link, a.camera, model_path=a.model, conf=a.conf, vlm=vlm, tray_roi=tray_roi)
+    if a.view:
+        rt.view_order = ["hand", "2", "3", "4"]
+        rt.set_split(max(rt.split, len(a.view[: MAX_VIEWS - 1]) + 1))
+    for i, src in enumerate(a.view[: MAX_VIEWS - 1], start=2):
+        rt.set_view(i, src)
+    if a.tray_view is not None:
+        rt.tray_slot = None
+        rt.set_tray_slot(a.tray_view)
     if a.point:
         rt.task.set_pointing(a.point_left, a.point_right, a.point_hold)
         rt.task._log("SYS", f"가리키기 켜짐 — 쟁반 왼쪽 끝 {a.point_left:.0f}° · 오른쪽 끝 {a.point_right:.0f}°"

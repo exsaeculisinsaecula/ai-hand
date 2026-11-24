@@ -2486,6 +2486,252 @@
     .status-top .status-actions .side-btn { padding: 0 6px; font-size: 15px; min-width: 0; }
     .status-label::after { display: none; }
   }
+  /* ===== 공 색 (물빠진 톤) — 요청한 공 색으로 버튼·막대가 물든다 ===== */
+  :root {
+    --c-a: #C0716A;      /* 빨간 공 · washed red */
+    --c-b: #6F8FB5;      /* 파란 공 · washed blue */
+    --c-c: #79A07A;      /* 초록 공 · washed green */
+    --c-ball-red: var(--c-a);
+    --c-ball-blue: var(--c-b);
+    --c-ball-green: var(--c-c);
+  }
+  body[data-part="1"], .ball-btn[data-part="1"] { --c-part: var(--c-a); }
+  body[data-part="2"], .ball-btn[data-part="2"] { --c-part: var(--c-b); }
+  body[data-part="3"], .ball-btn[data-part="3"] { --c-part: var(--c-c); }
+  /* 공 버튼: 항상 왼쪽 색 띠 + 연한 바탕, 올리거나 누르면 그 색으로 채움 */
+  .ball-btn {
+    border-left: 6px solid var(--c-part) !important;
+    background: color-mix(in srgb, var(--c-part) 10%, #FFFFFF) !important;
+    color: var(--text) !important;
+  }
+  .ball-btn:hover:not(:disabled), .ball-btn.active {
+    background: color-mix(in srgb, var(--c-part) 78%, #FFFFFF) !important;
+    border-color: var(--c-part) !important;
+    color: #FFFFFF !important;
+  }
+  .ball-btn b { color: inherit; }
+  /* 요청 중: 진행 막대·현재 단계·활성 버튼이 공 색 */
+  body[data-part] .status-card .cont-bar i { background: var(--c-part) !important; }
+  body[data-part] .status-card .sm-cell.active,
+  body[data-part] .status-card .sm-cell.pass-active { border-top-color: var(--c-part) !important; }
+  body[data-part] .status-card .sm-cell.active::before,
+  body[data-part] .status-card .sm-cell.pass-active::before { background: var(--c-part) !important; border-color: var(--c-part) !important; }
+  body[data-part] .status-card .sm-cell.active .sm-name,
+  body[data-part] .status-card .sm-cell.pass-active .sm-name { color: var(--c-part) !important; }
+  body[data-part] .mp-btn.active:not(.ball-btn), body[data-part] .win-tool-btn.active {
+    background: color-mix(in srgb, var(--c-part) 78%, #FFFFFF) !important;
+    border-color: var(--c-part) !important;
+  }
+  body[data-part] .manual-btn.pass { border-color: var(--c-part); color: var(--c-part); }
+  body[data-part] .manual-btn.pass:hover { background: var(--c-part); color: #FFFFFF; }
+  body[data-part] .ask-field:focus-within { border-bottom-color: var(--c-part); }
+  body[data-part] .status-card .status-state:not(.warn) { color: color-mix(in srgb, var(--c-part) 70%, var(--text)); }
+  .vlm-status { margin-left: 10px; font-size: 13px; font-weight: 500; letter-spacing: 0.04em; padding: 2px 10px;
+    border: 1px solid var(--line); color: var(--text-muted); white-space: nowrap; }
+  .vlm-status[data-on="1"] { border-color: var(--c-c); color: var(--c-c); }
+  .vlm-status[data-on="0"] { border-style: dashed; }
+  /* =====================================================================
+     MOTION — 산업용 콘솔처럼 차분하고 매끄럽게 (한 가지 곡선, 짧은 시간)
+     ===================================================================== */
+  :root { --ease: cubic-bezier(0.22, 0.75, 0.25, 1); --t-fast: 160ms; --t-mid: 320ms; }
+  /* 알람은 맨 아래 */
+  .alarm-banner { order: 99; }
+  /* 진행 막대: 단계 안에서도 계속 차오르고, 색은 부드럽게 바뀜 */
+  .cont-bar i { transition: width 380ms var(--ease), background-color var(--t-mid) var(--ease) !important; }
+  .status-card .cont-bar { overflow: hidden; }
+  /* 단계 표시 */
+  .status-card .sm-cell { transition: border-color var(--t-mid) var(--ease); }
+  .status-card .sm-cell::before { transition: transform var(--t-mid) var(--ease), background-color var(--t-mid) var(--ease), border-color var(--t-mid) var(--ease); }
+  .status-card .sm-name { transition: color var(--t-mid) var(--ease); }
+  .status-card .sm-cell.active::before { animation: node-pulse 1.8s var(--ease) infinite; }
+  @keyframes node-pulse {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--c-part, var(--c-work)) 45%, transparent); }
+    70%, 100% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--c-part, var(--c-work)) 0%, transparent); }
+  }
+  .status-state, .status-kicker, .vlm-result, .vlm-tag, .vlm-status, .alarm-banner, .alarm-tag,
+  .ask-field, .conn-block, .verdict-badge { transition: color var(--t-mid) var(--ease), background-color var(--t-mid) var(--ease), border-color var(--t-mid) var(--ease); }
+  /* 버튼: 눌림은 짧게, 색 변화는 부드럽게 */
+  .mp-btn, .side-btn, .win-tool-btn, .ask-examples button, .ask-send, .manual-btn, .ball-btn {
+    transition: background-color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+                color var(--t-fast) var(--ease), transform 90ms var(--ease), opacity var(--t-fast) var(--ease) !important;
+  }
+  .mp-btn:active:not(:disabled), .side-btn:active:not(:disabled), .ask-send:active:not(:disabled),
+  .ask-examples button:active, .manual-btn:active { transform: scale(0.97); }
+  button:disabled { transition: opacity var(--t-mid) var(--ease) !important; }
+  /* 글자·패널 등장 */
+  .swap-in { animation: swap-in 260ms var(--ease); }
+  @keyframes swap-in { from { opacity: 0.25; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  .row-in { animation: row-in 280ms var(--ease) both; }
+  @keyframes row-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .log-row.row-in { animation-duration: 220ms; }
+  .alarm-banner[data-kind="error"], .alarm-banner[data-kind="stop"] { animation: alarm-pulse 2.4s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
+  }
+  /* ===== 카메라 분할 화면 ===== */
+  body.handover-mode .cam-grid {
+    flex: 1 1 auto; min-height: 220px; display: grid; gap: 6px;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+    background: var(--line-faint); padding: 0;
+  }
+  body.handover-mode .cam-grid[data-split="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.handover-mode .cam-grid[data-split="3"] { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  body.handover-mode .cam-grid[data-split="3"] > .cam-stage { grid-row: 1 / span 2; }
+  body.handover-mode .cam-grid[data-split="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  body.handover-mode .cam-grid > .cam-stage {
+    height: auto !important; max-height: none !important; aspect-ratio: auto !important; flex: none !important;
+    min-height: 0; border: 0;
+  }
+  .cam-grid .tile-tag {
+    position: absolute; left: 8px; top: 8px; z-index: 3; font-size: 13px; padding: 2px 9px;
+    background: rgba(255, 255, 255, 0.88); border: 1px solid var(--line); color: var(--text-sec);
+  }
+  .cam-grid[data-split="1"] .tile-tag { display: none; }
+  .tile-tag b, .tile-no { font-family: "IBM Plex Mono", Consolas, monospace; color: var(--text); margin-right: 4px; }
+  .cam-tile { position: relative; min-width: 0; min-height: 0; background: #fff; overflow: hidden; }
+  .cam-tile > .tile-view > img { position: absolute; inset: 0 0 44px 0; width: 100%; height: calc(100% - 44px); object-fit: contain; opacity: 0;
+    transition: opacity var(--t-mid) var(--ease); }
+  .cam-tile.has-cam > .tile-view > img { opacity: 1; }
+  .tile-empty { position: absolute; inset: 0 0 44px 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; color: var(--text-muted); font-size: 14px; text-align: center; padding: 8px; transition: opacity var(--t-mid) var(--ease); }
+  .tile-empty b { font-size: 16px; color: var(--text-sec); font-weight: 600; }
+  .cam-tile.has-cam .tile-empty { opacity: 0; pointer-events: none; }
+  .tile-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 44px; display: flex; align-items: center; gap: 8px;
+    padding: 0 8px; border-top: 1px solid var(--line); background: var(--window); }
+  .tile-bar select { flex: 1; min-width: 0; height: 32px; font: inherit; font-size: 14px; border: 1px solid var(--line);
+    background: var(--window); color: var(--text); padding: 0 6px; }
+  .tile-info { font-size: 12px; color: var(--text-muted); font-family: "IBM Plex Mono", Consolas, monospace; }
+  .tile-tray { height: 32px; padding: 0 12px; font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--window);
+    color: var(--text-sec); cursor: pointer; transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
+  .tile-tray:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+  .tile-tray.active { background: var(--c-work); border-color: var(--c-work); color: #fff; }
+  .tile-tray:disabled { opacity: 0.4; cursor: default; }
+  .cam-tile.is-tray { box-shadow: inset 0 0 0 2px var(--c-work); }
+  .split-ctl { display: flex; align-items: center; gap: 0; margin-right: 10px; font-size: 13px; color: var(--text-muted); }
+  .split-ctl span { margin-right: 8px; letter-spacing: 0.08em; }
+  .split-ctl button { min-width: 34px; height: 30px; font: inherit; font-family: "IBM Plex Mono", Consolas, monospace; font-size: 14px;
+    border: 1px solid var(--line); margin-left: -1px; background: var(--window); color: var(--text-sec); cursor: pointer;
+    transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+  .split-ctl button.active { background: var(--text); border-color: var(--text); color: var(--window); position: relative; z-index: 1; }
+  body:not(.handover-mode) .split-ctl { display: none; }
+  @media (max-width: 720px) {
+    body.handover-mode .cam-grid { aspect-ratio: 4 / 3; flex: none; }
+    body.handover-mode .cam-grid[data-split="3"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    body.handover-mode .cam-grid[data-split="3"] > .cam-stage { grid-row: auto; grid-column: 1 / span 2; }
+    .tile-bar { height: 40px; } .cam-tile > .tile-view > img, .tile-empty { inset: 0 0 40px 0; height: calc(100% - 40px); }
+  }
+  /* ===== 분할 칸: 1번(손) 카메라와 같은 모양 ===== */
+  .cam-tile { display: flex; flex-direction: column; }
+  .cam-tile .tile-view { position: relative; flex: 1 1 auto; min-height: 0; background: #fff; }
+  .cam-tile > .tile-view > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff;
+    opacity: 0; transition: opacity var(--t-mid) var(--ease); }
+  .cam-tile.has-cam > .tile-view > img { opacity: 1; }
+  .cam-tile .tile-empty { display: none; }
+  .cam-tile .cam-state { inset: 0; gap: 8px; padding: 10px; text-align: center; }
+  .cam-tile .cam-state b { font-size: 18px; }
+  .cam-tile .cam-state span:not(.cam-state-mark) { font-size: 13px; }
+  .cam-tile .cam-state-mark { width: 34px; height: 34px; }
+  .cam-tile .cam-state-mark::before, .cam-tile .cam-state-mark::after { width: 22px; }
+  .cam-state.is-empty .cam-state-mark { border: 2px dashed var(--line); }
+  .cam-state.is-empty .cam-state-mark::before, .cam-state.is-empty .cam-state-mark::after { background: transparent; }
+  .cam-state.is-empty b { color: var(--text-sec); }
+  /* 이름표는 왼쪽 위, '작동 중' 은 오른쪽 위 (1번 칸도 분할일 때 같은 자리) */
+  .cam-grid .tile-tag { position: absolute; left: 10px; top: 10px; z-index: 5; display: flex; align-items: center; gap: 6px;
+    font-size: 13px; padding: 3px 10px; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); color: var(--text-sec);
+    max-width: calc(100% - 150px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cam-grid .cam-live { left: auto; right: 10px; }
+  .cam-tile.is-tray .tile-tag { border-color: var(--c-work); color: var(--c-work); }
+  .cam-tile.is-tray { box-shadow: none; }
+  .cam-tile.is-tray .tile-view { box-shadow: inset 0 0 0 2px var(--c-work); }
+  /* 칸 아래 조작 줄 */
+  .cam-tile .tile-bar { position: static; flex: none; height: 44px; display: flex; align-items: center; gap: 6px; padding: 0 8px;
+    border-top: 1px solid var(--line); background: var(--window); }
+  .tile-bar select { flex: 1 1 auto; min-width: 70px; }
+  .tile-btn { flex: none; height: 32px; padding: 0 10px; font: inherit; font-size: 13px; border: 1px solid var(--line);
+    background: var(--window); color: var(--text-sec); cursor: pointer;
+    transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
+  .tile-btn:hover:not(:disabled) { border-color: var(--text); color: var(--text); }
+  .tile-btn:disabled { opacity: 0.4; cursor: default; }
+  .tile-btn.tile-tray.active { background: var(--c-work); border-color: var(--c-work); color: #fff; }
+  .tile-btn.tile-power.active { background: var(--text); border-color: var(--text); color: var(--window); }
+  .tile-info { display: none; }
+  .cam-grid:not([data-split="1"]) .cam-stage .cam-state { gap: 8px; padding: 10px; text-align: center; }
+  .cam-grid:not([data-split="1"]) .cam-stage .cam-state b { font-size: 18px; }
+  .cam-grid:not([data-split="1"]) .cam-stage .cam-state span:not(.cam-state-mark) { font-size: 13px; }
+  .cam-grid:not([data-split="1"]) .cam-stage .cam-state-mark { width: 34px; height: 34px; }
+  .cam-grid:not([data-split="1"]) .cam-stage .cam-state-mark::before,
+  .cam-grid:not([data-split="1"]) .cam-stage .cam-state-mark::after { width: 22px; }
+  @media (max-width: 720px) {
+    .tile-btn.tile-pick { display: none; }
+    .cam-tile .tile-bar { height: 40px; }
+  }
+  /* ===== CAM 1~4: 모든 칸이 같은 모양, 이름표를 끌어 자리 바꾸기 ===== */
+  body.handover-mode .cam-grid .cam-tile { order: 0; }
+  .cam-grid .cam-tile[hidden] { display: none !important; }
+  body.handover-mode .cam-grid[data-split="3"] > .cam-stage { grid-row: auto; }
+  body.handover-mode .cam-grid[data-split="3"] > .cam-tile.pos-1 { grid-row: 1 / span 2; }
+  body.handover-mode .cam-grid .tile-view > .cam-stage {
+    position: absolute !important; inset: 0; height: 100% !important; max-height: none !important; min-height: 0 !important;
+    aspect-ratio: auto !important; flex: none !important; border: 0 !important; }
+  .cam-grid .hand-tile .tile-view { background: #fff; }
+  .cam-grid .tile-tag { cursor: grab; user-select: none; touch-action: none; }
+  .cam-grid[data-split="1"] .tile-tag { cursor: default; }
+  .cam-grid[data-split="1"] .tile-grip { display: none; }
+  .cam-grid[data-split="1"] .tile-tag { display: flex; }
+  .tile-grip { width: 8px; height: 12px; flex: none; opacity: 0.55;
+    background-image: radial-gradient(currentColor 1.2px, transparent 1.3px); background-size: 4px 4px; }
+  .tile-pos { font-family: "IBM Plex Mono", Consolas, monospace; font-weight: 600; color: var(--text); letter-spacing: 0.04em; }
+  .tile-name { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .role-chip { font-style: normal; font-size: 12px; line-height: 1; padding: 3px 7px; color: #fff; background: var(--text-sec); }
+  .role-chip.hand { background: var(--text); }
+  .role-chip.tray { background: var(--c-work); }
+  .tile-role { flex: none; height: 32px; display: inline-flex; align-items: center; padding: 0 12px; font-size: 13px;
+    background: var(--text); color: var(--window); }
+  .cam-tile.is-tray .tile-tag { border-color: var(--line); color: var(--text-sec); }
+  /* 끄는 동안: 잡은 칸은 흐리게, 놓을 칸은 테두리 */
+  .cam-grid.arranging { cursor: grabbing; }
+  .cam-tile.dragging { opacity: 0.55; }
+  .cam-tile.dragging .tile-tag { cursor: grabbing; }
+  .cam-tile.drop-target .tile-view { box-shadow: inset 0 0 0 3px var(--text) !important; }
+  .cam-tile .tile-view { transition: box-shadow var(--t-fast) var(--ease); }
+  .cam-tile { transition: opacity var(--t-fast) var(--ease); }
+  .split-ctl .auto-btn { width: auto; padding: 0 10px; margin-right: 12px; margin-left: 0; font-family: inherit; }
+  .split-ctl .auto-btn.active { background: var(--c-done); border-color: var(--c-done); color: #fff; }
+  .split-ctl .auto-btn.active::before { content: '● '; font-size: 10px; vertical-align: 1px; }
+
+  /* ===== 카메라 창 정리: 칸마다 조작이 있으니 제목줄은 학습 · 자동/분할만 ===== */
+  body.handover-mode #camPickBtn, body.handover-mode #camPowerBtn { display: none !important; }
+  body.handover-mode #cameraWindow .win-titlebar { flex-wrap: nowrap; gap: 10px; }
+  body.handover-mode #cameraWindow .win-subject { display: none; }
+  body.handover-mode #cameraWindow .win-tools { flex: 1 1 auto; min-width: 0; justify-content: flex-start; }
+  body.handover-mode #cameraWindow .learn-row { flex-wrap: wrap; gap: 6px; }
+  body.handover-mode #cameraWindow .split-ctl { flex: none; margin: 0 0 0 auto; }
+  body.handover-mode #camWinStatus { display: none; }
+  /* 영상 바깥(레터박스)은 옅은 회색 → 영상 가장자리가 또렷 */
+  body.handover-mode #webcamFeed, .cam-tile > .tile-view > img { background: #ECEBE6 !important; }
+  .cam-grid .tile-view { background: #ECEBE6; }
+  .cam-grid .cam-state { background: #F6F5F1; }
+  /* 이름표(왼쪽 위) · 작동 중(오른쪽 위)이 겹치지 않게 */
+  .cam-grid .cam-live { left: auto !important; right: 10px; top: 10px; }
+  .cam-grid .tile-tag { max-width: calc(100% - 170px); }
+  @media (max-width: 900px) {
+    body.handover-mode #cameraWindow .win-titlebar { flex-wrap: wrap; }
+    body.handover-mode #cameraWindow .split-ctl { margin-left: 0; }
+  }
+
+  /* ===== 칸 머리줄: 이름표 · 작동 중 은 영상 밖 위쪽 줄에 (영상과 절대 겹치지 않음) ===== */
+  :root { --tile-head: 36px; }
+  .cam-grid .tile-view::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 0; height: var(--tile-head); z-index: 4;
+    background: var(--window); border-bottom: 1px solid var(--line-faint); pointer-events: none;
+  }
+  .cam-grid .tile-tag { top: 4px !important; left: 6px !important; height: 28px; padding: 0 8px; border-color: transparent;
+    background: transparent; max-width: calc(100% - 180px); }
+  .cam-grid .tile-tag:hover { border-color: var(--line); background: var(--inset); }
+  .cam-grid .cam-live { top: 4px !important; right: 6px !important; height: 28px; z-index: 5; border-color: transparent; background: transparent; }
+  body.handover-mode .cam-grid .tile-view > .cam-stage { top: var(--tile-head) !important; height: calc(100% - var(--tile-head)) !important; }
+  .cam-tile > .tile-view > img { top: var(--tile-head) !important; height: calc(100% - var(--tile-head)) !important; }
+  .cam-tile > .tile-view > .cam-state { top: var(--tile-head); }
 </style>
 </head>
 <body>
@@ -2556,7 +2802,7 @@
       </div>
         <div class="bar-band">
           <div class="bar-meta">
-            <span style="display:flex;align-items:center;gap:6px;"><i class="dot pass" id="simDot"></i> <span id="simMsg">대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르세요.</span></span>
+            <span style="display:flex;align-items:center;gap:6px;"><i class="dot pass" id="simDot"></i> <span id="simMsg">대기 중 — 가져올 부품을 입력하거나 카메라에서 부품을 누르십시오.</span></span>
             <span class="mono" id="simTimer">0.0s</span>
           </div>
           <div class="cont-bar"><i id="simBar"></i></div>
@@ -2682,30 +2928,31 @@
         <div class="cam-state" id="camState" hidden>
           <span class="cam-state-mark" aria-hidden="true"></span>
           <b id="camStateTitle">카메라 연결 끊김</b>
-          <span id="camStateDesc">USB 웹캠을 꽂으면 자동으로 다시 연결돼요</span>
+          <span id="camStateDesc">USB 웹캠을 꽂으면 자동으로 다시 연결됩니다</span>
         </div>
         <div class="cam-live" id="camLive" hidden><i></i><span id="camLiveText">작동 중</span></div>
         <div class="roi-box" id="roiBox" hidden></div>
-        <div class="roi-hint" id="roiHint" hidden>영상 위에서 로봇 손바닥 자리를 드래그하세요 · Esc 취소</div>
+        <div class="roi-hint" id="roiHint" hidden>영상 위에서 로봇 손바닥 자리를 드래그하십시오 · Esc 취소</div>
       </div>
 
       <!-- Camera Detection Verdict Panel -->
       <div class="verdict-panel">
         <div class="verdict-top">
           <span class="verdict-badge mono" id="verdictBadge">비전 추적 중</span>
-          <span class="verdict-reason" id="verdictReason">공 네모칸을 클릭해 요청하거나 로봇손 가까이 드래그하세요.</span>
+          <span class="verdict-reason" id="verdictReason">공 네모칸을 클릭해 요청하거나 로봇손 가까이 드래그하십시오.</span>
           <span class="mono" style="font-size:10.5px;color:var(--text-sec);" id="verdictDist">최단: 16.8cm</span>
         </div>
         <div class="cont-bar"><i id="verdictBar" style="width:45%;background:var(--text-muted);"></i></div>
         <div class="learn-row" id="learnRow" hidden>
           <span class="learn-label" id="learnLabel">학습</span>
-          <button type="button" class="mp-btn" data-learn="bolt">볼트 <b id="lcBolt">0</b></button>
-          <button type="button" class="mp-btn" data-learn="nut">너트 <b id="lcNut">0</b></button>
-          <button type="button" class="mp-btn" id="learnBg" title="부품 없이 빈 화면일 때 누르면, 그 뒤로는 달라진 부분만 부품으로 봐요">빈 화면<small id="bgState" hidden>배경 없음</small></button>
-          <button type="button" class="mp-btn" id="roiBtn" title="영상 위에서 로봇 손바닥 자리를 드래그해 지정 — 이 영역에 부품이 닿아야 쥐어요">손 영역</button>
+          <button type="button" class="mp-btn ball-btn" data-learn="red" data-part="1">빨간 공 <b id="lcRed">0</b></button>
+          <button type="button" class="mp-btn ball-btn" data-learn="blue" data-part="2">파란 공 <b id="lcBlue">0</b></button>
+          <button type="button" class="mp-btn ball-btn" data-learn="green" data-part="3">초록 공 <b id="lcGreen">0</b></button>
+          <button type="button" class="mp-btn" id="learnBg" title="공 없이 빈 화면일 때 누르면, 그 뒤로는 달라진 부분만 공으로 봅니다">빈 화면<small id="bgState" hidden>배경 없음</small></button>
+          <button type="button" class="mp-btn" id="roiBtn" title="영상 위에서 로봇 손바닥 자리를 드래그해 지정 — 이 영역에 공이 닿아야 쥡니다">손 영역</button>
           <button type="button" class="mp-btn" id="camPickBtn" title="연결된 카메라를 찾아 미리보기로 고르기">카메라 선택</button>
           <button type="button" class="mp-btn" id="camPowerBtn" title="지금 쓰는 카메라 끄기/켜기 (저장됨)">카메라 끄기</button>
-          <button type="button" class="mp-btn" id="learnConfirm" hidden>쥐어줬어요</button>
+          <button type="button" class="mp-btn" id="learnConfirm" hidden>쥐어줬습니다</button>
         </div>
       </div>
 
@@ -2713,9 +2960,9 @@
       <section class="status-card ask-card">
     <div class="ask-col">
     <form class="ask-box" id="askForm" autocomplete="off">
-      <label class="ask-label" for="askInput">무엇을 가져올까요?</label>
+      <label class="ask-label" for="askInput">무엇을 가져오겠습니까? <span class="vlm-status" id="vlmStatus" hidden></span></label>
       <div class="ask-field">
-        <input id="askInput" type="text" maxlength="120" placeholder="예: 파란색 육각 캡 주세요" enterkeyhint="send">
+        <input id="askInput" type="text" maxlength="120" placeholder="예: 파란색 육각 캡 줘" enterkeyhint="send">
         <button type="submit" class="ask-send" id="askSend">가져오기</button>
       </div>
       <div class="ask-examples" aria-label="예시 요청">
@@ -2726,7 +2973,7 @@
       <div class="vlm-result" id="vlmResult" aria-live="polite" hidden>
         <span class="vlm-tag mono">VLM</span>
         <div class="vlm-body">
-          <div class="vlm-reply"><i class="vlm-swatch" aria-hidden="true"></i><span id="vlmReply">요청을 입력하면 VLM 분석 결과가 여기에 나와요</span></div>
+          <div class="vlm-reply"><i class="vlm-swatch" aria-hidden="true"></i><span id="vlmReply">요청을 입력하면 VLM 분석 결과가 여기에 나옵니다</span></div>
           <div class="vlm-cues" id="vlmCues">예: "파란 캡 하나 줘" → 2번 캡 B</div>
         </div>
       </div>
@@ -2742,9 +2989,9 @@
 <div class="cam-modal" id="camPicker" role="dialog" aria-modal="true" aria-labelledby="camPickTitle" hidden>
   <div class="cam-modal-panel">
     <div class="cam-picker-head">
-      <b id="camPickTitle">어떤 카메라를 쓸까요?</b>
+      <b id="camPickTitle">어떤 카메라를 쓰겠습니까?</b>
       <div class="cam-picker-roles" id="camPickRoles" hidden>
-        <button type="button" class="active" data-role="hand">손 카메라</button>
+        <button type="button" class="active" data-role="hand">CAM 1</button>
         <button type="button" data-role="tray">쟁반 카메라</button>
       </div>
       <button type="button" class="mp-btn" id="camRescan">다시 찾기</button>
@@ -2773,9 +3020,9 @@
     </div>
     <p class="estop-desc" id="estopDesc">로봇 동작을 즉시 멈췄습니다. 모든 관절은 현재 각도를 유지합니다.</p>
     <ol class="estop-steps">
-      <li><b>01</b><span>작업 영역 안에 사람이나 손이 없는지 확인하세요.</span></li>
-      <li><b>02</b><span>그리퍼나 슈트에 걸린 부품·이물질을 치우세요.</span></li>
-      <li><b>03</b><span>이상이 없으면 안전 확인에 체크한 뒤 정지를 해제하세요.</span></li>
+      <li><b>01</b><span>작업 영역 안에 사람이나 손이 없는지 확인하십시오.</span></li>
+      <li><b>02</b><span>그리퍼나 슈트에 걸린 부품·이물질을 치우십시오.</span></li>
+      <li><b>03</b><span>이상이 없으면 안전 확인에 체크한 뒤 정지를 해제하십시오.</span></li>
     </ol>
     <label class="estop-check">
       <input type="checkbox" id="estopConfirm">
@@ -3288,7 +3535,7 @@
   });
 
   appendLog('SYS', '3D 와이어프레임 로봇손 & AI 비전 시뮬레이터 초기화 완료 (60FPS)');
-  appendLog('SYS', '공 네모칸을 클릭해 요청하거나, 드래그하여 로봇손 가까이 가져가 자동 파지를 체험해 보세요.');
+  appendLog('SYS', '공 네모칸을 클릭해 요청하거나, 드래그하여 로봇손 가까이 가져가 자동 파지를 체험해 보십시오.');
 
   // Orbit Camera state (smoothly interpolates toward targetCam)
   let activeCamPreset = 'iso';
@@ -3412,7 +3659,7 @@
         camWinStatus.className = 'win-status pass mono';
         appendLog('SYS', '브라우저 웹캠 스트림 연결됨 (전체 손짓 자동 분류는 python app.py 실행 시 활성화됩니다)');
       } catch (err) {
-        appendLog('ERR', '웹캠을 열 수 없습니다 — 가상 비전 카메라 모드를 사용하세요.');
+        appendLog('ERR', '웹캠을 열 수 없습니다 — 가상 비전 카메라 모드를 사용하십시오.');
       }
     } else {
       appendLog('SYS', '실물 웹캠 MediaPipe 인식은 python app.py 실행 시 동작합니다.');
@@ -3536,6 +3783,9 @@
     vlmResult.classList.toggle('thinking', mode === 'thinking');
     vlmReply.textContent = reply;
     vlmCues.textContent = cues || '';
+    vlmResult.classList.remove('swap-in');
+    void vlmResult.offsetWidth;
+    vlmResult.classList.add('swap-in');
   }
   function markPick(part) {
     partBtns.forEach((b, i) => b.classList.toggle('vlm-pick', part === i + 1));
@@ -3550,16 +3800,22 @@
         const res = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'request', text: q }) });
         const data = await res.json();
         const r = data.result || {};
-        showVlm(r.reply || '', r.ok ? `요청: ${({ bolt: '볼트', nut: '너트', washer: '와셔' })[r.target]}` : '다시 입력해 주세요', r.ok ? 'ok' : 'warn', r.ok ? HO_PART[r.target] : null);
+        const info = r.info || {};
+        const how = info.method ? `${info.method}${info.seconds ? ` ${info.seconds}s` : ''}${info.reason ? ` — ${info.reason}` : ''}` : '';
+        const name = ({ red: '빨간 공', blue: '파란 공', green: '초록 공' })[r.target];
+        const cues = r.ok
+          ? `이해: ${name} · ${how} → 로봇에 ${r.robot || 'OPEN'}(손 펴기) 전송`
+          : (how ? `${how} · 다시 입력해 주십시오` : '다시 입력해 주십시오');
+        showVlm(r.reply || '', cues, r.ok ? 'ok' : 'warn', r.ok ? HO_PART[r.target] : null);
         if (r.ok) askInput.value = '';
         applyBackendState(data);
       } catch (_) {
-        showVlm('로봇 서버에 연결할 수 없어요', 'handover_app.py 실행 여부를 확인하세요', 'warn');
+        showVlm('로봇 서버에 연결할 수 없습니다', 'handover_app.py 실행 여부를 확인하십시오', 'warn');
       }
       return;
     }
     if (world.state !== 'IDLE' && !world.emergencyStopped) {
-      showVlm('지금 다른 부품을 처리하는 중이에요. 끝나면 다시 요청해주세요.', '', 'warn');
+      showVlm('지금 다른 요청을 처리하는 중입니다. 끝나면 다시 요청해 주십시오.', '', 'warn');
       return;
     }
     vlmBusy = true;
@@ -3627,10 +3883,10 @@
     const rbs = handoverMode && hoSnap && hoSnap.robot ? hoSnap.robot.status : 'connected';
     if (rbs !== 'connected' && !world.emergencyStopped) {
       const msg = {
-        disconnected: '로봇 연결 끊김 — micro:bit USB 케이블(허브)을 확인하세요. 꽂으면 자동으로 다시 연결돼요.',
-        no_response: '로봇이 응답하지 않아요 — micro:bit 전원 · 케이블을 확인하세요.',
-        updating: '로봇 펌웨어를 자동으로 설치하는 중이에요 — 잠시만 기다려 주세요.',
-        connecting: '로봇에 연결하는 중이에요.',
+        disconnected: '로봇 연결 끊김 — micro:bit USB 케이블(허브)을 확인하십시오. 꽂으면 자동으로 다시 연결됩니다.',
+        no_response: '로봇이 응답하지 않습니다 — micro:bit 전원 · 케이블을 확인하십시오.',
+        updating: '로봇 펌웨어를 자동으로 설치하는 중입니다 — 잠시만 기다려 주십시오.',
+        connecting: '로봇에 연결하는 중입니다.',
       }[rbs] || `로봇 상태: ${rbs}`;
       alarmBanner.setAttribute('role', 'alert');
       alarmBanner.dataset.kind = rbs === 'updating' || rbs === 'connecting' ? 'info' : 'error';
@@ -3642,7 +3898,7 @@
     if (world.emergencyStopped) {
       alarmBanner.setAttribute('role', 'alert');
       alarmBanner.dataset.kind = 'stop';
-      alarmText.textContent = '비상 정지됨 — 로봇이 현재 자세로 멈췄습니다. 주변을 확인한 뒤 [대기 복귀]를 누르세요.';
+      alarmText.textContent = '비상 정지됨 — 로봇이 현재 자세로 멈췄습니다. 주변을 확인한 뒤 [대기 복귀]를 누르십시오.';
       alarmTime.textContent = '';
       alarmAck.hidden = true;
       return;
@@ -3765,15 +4021,21 @@
   let camPickRole = 'hand';
   let camScanBusy = false;
   let lastCams = [];
-  const ROLE_KO = { hand: '손', tray: '쟁반' };
+  const ROLE_KO = { hand: '손', tray: '쟁반', view2: '2번 칸', view3: '3번 칸', view4: '4번 칸' };
+  function openCamPicker(role) {
+    camPickRole = role || 'hand';
+    camPicker.hidden = false;
+    scanCameras();
+  }
 
   function renderCamList() {
     camPickList.innerHTML = '';
     if (!lastCams.length) {
-      camPickMsg.textContent = '연결된 카메라가 없어요 — USB 웹캠을 꽂고 [다시 찾기]를 눌러 주세요';
+      camPickMsg.textContent = '연결된 카메라가 없습니다 — USB 웹캠을 꽂고 [다시 찾기]를 눌러 주십시오';
       return;
     }
-    camPickMsg.textContent = `${ROLE_KO[camPickRole]} 카메라로 쓸 카메라를 누르세요 · ${lastCams.length}대 찾음`;
+    const pos = ((hoSnap && hoSnap.view_order) || ['hand', '2', '3', '4']).indexOf(camPickRole === 'hand' ? 'hand' : camPickRole.replace('view', '')) + 1;
+    camPickMsg.textContent = `${pos > 0 ? `CAM ${pos}` : ROLE_KO[camPickRole]}에 넣을 카메라를 누르십시오 · ${lastCams.length}대 찾음`;
     for (const c of lastCams) {
       const card = document.createElement('div');
       card.className = 'cam-card';
@@ -3782,11 +4044,11 @@
       card.classList.toggle('current', mine && !c.off);
       card.classList.toggle('off', Boolean(c.off));
       const img = c.off
-        ? '<div class="cam-noimg">꺼짐 · 열지 않아요</div>'
+        ? '<div class="cam-noimg">꺼짐 · 열지 않습니다</div>'
         : (c.thumb ? `<img alt="" src="${c.thumb}">` : '<div class="cam-noimg">미리보기 없음</div>');
       const badge = c.off ? '<span class="cam-badge">꺼짐</span>'
         : mine ? '<span class="cam-badge on">사용 중</span>'
-        : other ? `<span class="cam-badge">${ROLE_KO[c.role]} 카메라</span>` : '';
+        : other ? `<span class="cam-badge">CAM ${((hoSnap && hoSnap.view_order) || ['hand', '2', '3', '4']).indexOf(c.role === 'hand' ? 'hand' : String(c.role).replace('view', '')) + 1}에서 사용 중</span>` : '';
       card.innerHTML = `<button type="button" class="cam-card-pick">${img}<div class="cam-card-meta"><b>${c.index}번</b><span>${c.width ? `${c.width}×${c.height}` : ''}</span>${badge}</div></button>`
         + `<button type="button" class="cam-card-power">${c.off ? '켜기' : '끄기'}</button>`;
       const pick = card.querySelector('.cam-card-pick');
@@ -3803,13 +4065,13 @@
             c.role = camPickRole;
             renderCamList();
             camPickMsg.textContent = r.reply;
-            webcamFeed.src = '/api/video?t=' + Date.now();
+            if (camPickRole === 'hand') webcamFeed.src = '/api/video?t=' + Date.now();
             camAutoShown = true;
             setTimeout(() => { camPicker.hidden = true; }, 900);
           }
           applyBackendState(data);
         } catch (_) {
-          camPickMsg.textContent = '서버에 연결할 수 없어요';
+          camPickMsg.textContent = '서버에 연결할 수 없습니다';
         }
       });
       card.querySelector('.cam-card-power').addEventListener('click', async () => {
@@ -3828,7 +4090,7 @@
             camPickMsg.textContent = (data.result && data.result.reply) || '';
           }
         } catch (_) {
-          camPickMsg.textContent = '서버에 연결할 수 없어요';
+          camPickMsg.textContent = '서버에 연결할 수 없습니다';
         }
       });
       camPickList.appendChild(card);
@@ -3838,7 +4100,7 @@
   async function scanCameras() {
     if (camScanBusy) return;
     camScanBusy = true;
-    camPickMsg.textContent = '카메라를 찾는 중… (몇 초 걸려요)';
+    camPickMsg.textContent = '카메라를 찾는 중… (몇 초 걸립니다)';
     camPickList.innerHTML = '';
     try {
       const res = await fetch('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'camera_scan' }) });
@@ -3846,13 +4108,20 @@
       lastCams = (data.result && data.result.cameras) || [];
       const names = (data.result && data.result.names) || [];
       document.getElementById('camPickNames').textContent = names.length
-        ? `이 컴퓨터에 연결된 카메라: ${names.join(' · ')} — 번호와 이름의 순서는 다를 수 있으니 미리보기로 확인하세요`
+        ? `이 컴퓨터에 연결된 카메라: ${names.join(' · ')} — 번호와 이름의 순서는 다를 수 있으니 미리보기로 확인하십시오`
         : '';
       const roles = data.camera_roles || ['hand'];
+      if (!roles.includes(camPickRole)) camPickRole = 'hand';
+      camPickRoles.innerHTML = roles.map((ro, i) => `<button type="button" data-role="${ro}" class="${ro === camPickRole ? 'active' : ''}">CAM ${i + 1}</button>`).join('');
+      camPickRoles.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
+        camPickRole = b.dataset.role;
+        camPickRoles.querySelectorAll('[data-role]').forEach((x) => x.classList.toggle('active', x === b));
+        renderCamList();
+      }));
       camPickRoles.hidden = roles.length < 2;
       renderCamList();
     } catch (_) {
-      camPickMsg.textContent = '서버에 연결할 수 없어요 (handover_app.py 실행 확인)';
+      camPickMsg.textContent = '서버에 연결할 수 없습니다 (handover_app.py 실행 확인)';
     }
     camScanBusy = false;
   }
@@ -3972,7 +4241,8 @@
     for (const o of opts) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = `mp-btn manual-btn ${o.tone || ''}`;
+      b.className = `mp-btn manual-btn row-in ${o.tone || ''}${o.part ? ' ball-btn' : ''}`;
+      if (o.part) b.dataset.part = String(HO_PART[o.part]);
       b.textContent = o.label;
       b.addEventListener('click', () => postBackendAction('manual', null, { step: o.key }));
       box.appendChild(b);
@@ -4371,7 +4641,7 @@
   let camWasOk = true;
   let hoSnap = null;
   let hoLogSig = '';
-  const HO_PART = { bolt: 1, nut: 2, washer: 3 };
+  const HO_PART = { red: 1, blue: 2, green: 3 };
   const HO_LEGACY = { IDLE: 'IDLE', REQUEST: 'REQUEST', RECEIVE: 'CONFIRM', VERIFY: 'CONFIRM', GRIP: 'PICK', PLACE: 'DELIVER', HOME: 'RETURN' };
 
   function enterHandoverMode() {
@@ -4380,16 +4650,17 @@
     document.getElementById('learnRow').hidden = false;
     const camTools = document.querySelector('#cameraWindow .win-tools');
     if (camTools) camTools.appendChild(document.getElementById('learnRow'));   // 버튼을 제목줄로 → 영상 칸을 더 크게
+    buildCamGrid();
     document.getElementById('robotCtrl').hidden = false;
     const hiPlace = document.getElementById('hiPlace');
     const paLabel = document.querySelector('#robotCtrl .place-angle');
     if (hiPlace && paLabel) { hiPlace.textContent = ''; hiPlace.appendChild(paLabel); }   // 각도 입력은 설정 탭으로
-    const ex = [['볼트 줘', '볼트 줘'], ['너트 하나 받아', '너트 하나 받아'], ['볼트 말고 너트', '볼트 말고 너트']];
-    document.querySelectorAll('[data-ask]').forEach((b, i) => { if (ex[i]) { b.dataset.ask = ex[i][0]; b.textContent = ex[i][1]; } });
-    document.getElementById('askInput').placeholder = '예: 볼트 줘 / 너트';
-    vlmReply.textContent = '받을 부품을 입력하면 해석 결과가 여기에 나와요';
-    vlmCues.textContent = '팀 YOLO 모델 · 볼트 / 너트';
-    document.querySelector('.status-actions [onclick="uiHand()"]').textContent = '쥐어줬어요';
+    const ex = [['빨간 공 줘', '빨간 공 줘'], ['파란 공 하나 받아', '파란 공 하나 받아'], ['초록 공', '초록 공']];
+    document.querySelectorAll('[data-ask]').forEach((b, i) => { if (ex[i]) { b.dataset.ask = ex[i][0]; b.textContent = ex[i][1]; b.classList.add('ball-btn'); b.dataset.part = String([1, 2, 3][i]); } });
+    document.getElementById('askInput').placeholder = '예: 빨간 공 줘 / 파란 공';
+    vlmReply.textContent = '받을 공을 입력하면 해석 결과가 여기에 나옵니다';
+    vlmCues.textContent = '문장을 입력하면 VLM이 이해해 빨간 공 · 파란 공 · 초록 공 중 하나를 고르고 로봇에 신호를 보냅니다';
+    document.querySelector('.status-actions [onclick="uiHand()"]').textContent = '쥐어줬습니다';
     // 서 있는 손 (팔 없음): 3D 를 손 + 손목 회전만 보이게
     world.standingHand = true;
     H3D.LAYOUT.forearmLen = 1.4;
@@ -4405,13 +4676,212 @@
       const names = ['대기', '요청', '받기', '확인', '잡기', '내려놓기', '복귀'];
       c.querySelector('.sm-name').textContent = names[i];
     });
-    ['볼트', '너트', '와셔'].forEach((n, i) => { if (H3D.PARTS[i]) H3D.PARTS[i].name = n; });
+    [['빨간 공', '#C0716A'], ['파란 공', '#6F8FB5'], ['초록 공', '#79A07A']].forEach(([n, c], i) => { if (H3D.PARTS[i]) { H3D.PARTS[i].name = n; H3D.PARTS[i].color = c; } });
     world.liveMode = true;
     world.manualServo = true;
     setCamViewMode('webcam');
     webcamFeed.src = '/api/video?t=' + Date.now();
     webcamFeed.style.display = 'block';
     camPlaceholder.style.display = 'none';
+  }
+
+  // ===== 카메라 분할 화면: CAM 1~4 자리에 아무 카메라나, 이름표를 끌어 자리 바꾸기 =====
+  const camGrid = document.createElement('div');
+  camGrid.className = 'cam-grid';
+  camGrid.dataset.split = '1';
+  const CAM_OPTS = ['<option value="">카메라 없음</option>']
+    .concat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => `<option value="${i}">${i}번 카메라</option>`)).join('');
+  function tileChrome(id) {
+    const hand = id === 'hand';
+    return {
+      top: `<div class="tile-tag" title="끌어서 다른 칸과 자리 바꾸기"><span class="tile-grip" aria-hidden="true"></span><b class="tile-pos">CAM</b><span class="tile-name"></span></div>`,
+      bar: `<div class="tile-bar"><select aria-label="카메라 고르기">${hand ? CAM_OPTS.replace('<option value="">카메라 없음</option>', '') : CAM_OPTS}</select>
+        <button type="button" class="tile-btn tile-pick" title="연결된 카메라를 미리보기로 보고 고르기">미리보기</button>
+        <button type="button" class="tile-btn tile-power" title="이 카메라 끄기/켜기 (저장됨)">끄기</button>
+        ${hand ? '' : '<button type="button" class="tile-btn tile-tray" title="이 칸을 쟁반 카메라로 (색 규칙으로 공 찾기)">쟁반</button>'}</div>`,
+    };
+  }
+  function buildCamGrid() {
+    const stage = document.getElementById('camDropZone');
+    const tile = document.createElement('div');
+    tile.className = 'cam-tile hand-tile';
+    tile.dataset.id = 'hand';
+    stage.parentNode.insertBefore(camGrid, stage);
+    const view = document.createElement('div');
+    view.className = 'tile-view';
+    const c = tileChrome('hand');
+    view.appendChild(stage);
+    view.insertAdjacentHTML('beforeend', c.top);
+    const live = stage.querySelector('#camLive');
+    if (live) view.appendChild(live);                               // '작동 중' 도 영상 위가 아니라 머리줄에
+    tile.appendChild(view);
+    tile.insertAdjacentHTML('beforeend', c.bar);
+    camGrid.appendChild(tile);
+    wireTile(tile);
+    const ctl = document.createElement('div');
+    ctl.className = 'split-ctl';
+    ctl.innerHTML = '<button type="button" class="auto-btn" title="카메라를 꽂으면 빈 CAM 칸에 자동으로 띄웁니다">자동</button><span>분할</span>'
+      + [1, 2, 3, 4].map((n) => `<button type="button" data-split="${n}">${n}</button>`).join('');
+    ctl.querySelectorAll('[data-split]').forEach((b) => b.addEventListener('click', () => postBackendAction('view_split', null, { n: Number(b.dataset.split) })));
+    ctl.querySelector('.auto-btn').addEventListener('click', () => postBackendAction('view_auto', null, { on: !(hoSnap && hoSnap.auto_cams) }));
+    const status = document.getElementById('camWinStatus');
+    status.parentNode.insertBefore(ctl, status);
+  }
+  function makeTile(id) {
+    const t = document.createElement('div');
+    t.className = 'cam-tile';
+    t.dataset.id = id;
+    const c = tileChrome(id);
+    t.innerHTML = `<div class="tile-view"><img alt="카메라 영상">${c.top}
+        <div class="cam-live" hidden><i></i><span class="tile-live">작동 중</span></div>
+        <div class="cam-state is-empty"><span class="cam-state-mark" aria-hidden="true"></span><b class="tile-title">카메라를 고르십시오</b>
+          <span class="tile-desc">아래 목록이나 [미리보기]에서 고릅니다</span></div></div>${c.bar}`;
+    wireTile(t);
+    return t;
+  }
+  function tileView(id) {
+    return id === 'hand' ? null : ((hoSnap && hoSnap.views) || []).find((x) => x.slot === Number(id));
+  }
+  function wireTile(t) {
+    const id = t.dataset.id;
+    const hand = id === 'hand';
+    t.querySelector('select').addEventListener('change', (e) => {
+      if (hand) {
+        if (e.target.value !== '') postBackendAction('camera_select', null, { role: 'hand', index: Number(e.target.value) })
+          .then(() => { webcamFeed.src = '/api/video?t=' + Date.now(); });
+      } else {
+        postBackendAction('view_set', null, { slot: Number(id), src: e.target.value || null });
+      }
+    });
+    t.querySelector('.tile-pick').addEventListener('click', () => openCamPicker(hand ? 'hand' : `view${id}`));
+    t.querySelector('.tile-power').addEventListener('click', () => {
+      if (hand) {
+        const cam = (hoSnap && hoSnap.camera) || {};
+        if (cam.index != null) postBackendAction('camera_power', null, { index: cam.index, on: Boolean(cam.off) });
+        return;
+      }
+      const v = tileView(id);
+      if (v && /^\d+$/.test(String(v.src))) postBackendAction('camera_power', null, { index: Number(v.src), on: Boolean(v.off) });
+    });
+    const tray = t.querySelector('.tile-tray');
+    if (tray) tray.addEventListener('click', () => postBackendAction('view_tray', null, { slot: Number(id) }));
+    // 이름표를 끌어 다른 칸에 놓으면 자리 바꾸기 (마우스·터치 공통)
+    const tag = t.querySelector('.tile-tag');
+    tag.addEventListener('pointerdown', (e) => {
+      if (camGrid.dataset.split === '1') return;
+      e.preventDefault();
+      tag.setPointerCapture(e.pointerId);
+      t.classList.add('dragging');
+      camGrid.classList.add('arranging');
+      let over = null;
+      const move = (ev) => {
+        const el = document.elementFromPoint(ev.clientX, ev.clientY);
+        const target = el && el.closest('.cam-tile');
+        const next = target && target !== t && camGrid.contains(target) ? target : null;
+        if (next !== over) {
+          if (over) over.classList.remove('drop-target');
+          over = next;
+          if (over) over.classList.add('drop-target');
+        }
+      };
+      const up = (ev) => {
+        if (ev && ev.type === 'pointerup') move(ev);       // 놓은 자리 기준
+        tag.removeEventListener('pointermove', move);
+        tag.removeEventListener('pointerup', up);
+        tag.removeEventListener('pointercancel', up);
+        t.classList.remove('dragging');
+        camGrid.classList.remove('arranging');
+        if (over) {
+          over.classList.remove('drop-target');
+          const order = [...((hoSnap && hoSnap.view_order) || ['hand', '2', '3', '4'])];
+          const i = order.indexOf(id), j = order.indexOf(over.dataset.id);
+          if (i >= 0 && j >= 0) {
+            [order[i], order[j]] = [order[j], order[i]];
+            placeTiles(order, Number(camGrid.dataset.split));         // 바로 옮겨 보여 주고 저장
+            postBackendAction('view_order', null, { order });
+          }
+        }
+      };
+      tag.addEventListener('pointermove', move);
+      tag.addEventListener('pointerup', up);
+      tag.addEventListener('pointercancel', up);
+    });
+  }
+  function placeTiles(order, split) {
+    order.forEach((id, i) => {
+      let t = camGrid.querySelector(`.cam-tile[data-id="${id}"]`);
+      if (!t && i < split) { t = makeTile(id); t.classList.add('row-in'); camGrid.appendChild(t); }
+      if (!t) return;
+      t.style.order = String(i + 1);
+      t.hidden = i >= split;
+      for (let k = 1; k <= 4; k++) t.classList.toggle(`pos-${k}`, k === i + 1);
+      t.querySelector('.tile-pos').textContent = `CAM ${i + 1}`;
+    });
+  }
+  function renderViews(snap) {
+    const split = snap.split || 1;
+    const order = snap.view_order || ['hand', '2', '3', '4'];
+    const views = snap.views || [];
+    const cam = snap.camera || {};
+    document.querySelectorAll('.split-ctl [data-split]').forEach((b) => b.classList.toggle('active', Number(b.dataset.split) === split));
+    const ab = document.querySelector('.split-ctl .auto-btn');
+    if (ab) ab.classList.toggle('active', Boolean(snap.auto_cams));
+    camGrid.dataset.split = String(split);
+    if (!camGrid.classList.contains('arranging')) placeTiles(order, split);
+    // 손 카메라 칸
+    const ht = camGrid.querySelector('.hand-tile');
+    if (ht) {
+      ht.querySelector('.tile-name').textContent = cam.index != null ? `${cam.index}번` : '';
+      const sel = ht.querySelector('select');
+      if (document.activeElement !== sel && cam.index != null) sel.value = String(cam.index);
+      const pw = ht.querySelector('.tile-power');
+      pw.textContent = cam.off ? '켜기' : '끄기';
+      pw.classList.toggle('active', Boolean(cam.off));
+    }
+    // 추가 카메라 칸
+    for (const id of ['2', '3', '4']) {
+      const t = camGrid.querySelector(`.cam-tile[data-id="${id}"]`);
+      if (!t || t.hidden) continue;
+      const slot = Number(id);
+      const v = views.find((x) => x.slot === slot);
+      const isTray = snap.tray_slot === slot;
+      const srcName = v ? (String(v.src).match(/^\d+$/) ? `${v.src}번` : String(v.src).split(/[\\/]/).pop()) : '빈 칸';
+      const sel = t.querySelector('select');
+      if (v && ![...sel.options].some((o) => o.value === String(v.src))) {
+        sel.insertAdjacentHTML('beforeend', `<option value="${v.src}">${srcName}</option>`);
+      }
+      [...sel.options].forEach((o) => {
+        if (o.value === '' || !/^\d+$/.test(o.value)) return;
+        o.textContent = `${o.value}번 카메라${String(cam.index) === o.value ? ' (CAM ' + (order.indexOf('hand') + 1) + '과 같은 영상)' : ''}`;
+      });
+      if (document.activeElement !== sel) sel.value = v ? String(v.src) : '';
+      const img = t.querySelector('img');
+      const want = v ? `${v.slot}|${v.src}` : '';
+      if (img.dataset.want !== want) {
+        img.dataset.want = want;
+        if (v) img.src = `/api/video?view=${slot}&t=${Date.now()}`; else img.removeAttribute('src');
+      }
+      t.querySelector('.tile-name').innerHTML = `${srcName.replace(/</g, '&lt;')}${isTray ? '<i class="role-chip tray">쟁반</i>' : ''}`;
+      t.querySelector('.cam-live').hidden = !(v && v.ok);
+      t.querySelector('.tile-live').textContent = `작동 중 · ${Math.round((v && v.fps) || 0)}fps`;
+      const stateEl = t.querySelector('.cam-state');
+      stateEl.hidden = Boolean(v && v.ok);
+      stateEl.classList.toggle('is-empty', !v);
+      stateEl.classList.toggle('is-off', Boolean(v && v.off));
+      t.querySelector('.tile-title').textContent = !v ? '카메라를 고르십시오' : v.off ? '카메라 꺼짐' : (v.error ? '카메라 연결 끊김' : '연결하는 중');
+      t.querySelector('.tile-desc').textContent = !v ? '아래 목록이나 [미리보기]에서 고릅니다'
+        : v.off ? `${srcName} 카메라를 꺼 두었습니다 — [켜기]를 누르십시오`
+        : (v.error ? 'USB 웹캠을 꽂으면 자동으로 다시 연결됩니다' : '잠시만 기다려 주십시오');
+      t.classList.toggle('has-cam', Boolean(v && v.ok));
+      t.classList.toggle('is-tray', isTray);
+      const pw = t.querySelector('.tile-power');
+      pw.disabled = !(v && /^\d+$/.test(String(v.src))) || Boolean(v && v.shared);
+      pw.textContent = v && v.off ? '켜기' : '끄기';
+      pw.classList.toggle('active', Boolean(v && v.off));
+      const tb = t.querySelector('.tile-tray');
+      tb.classList.toggle('active', isTray);
+      tb.disabled = !v || Boolean(v && v.shared);
+    }
   }
 
   function applyHandover(snap) {
@@ -4445,7 +4915,7 @@
     document.getElementById('connLabel').textContent = rb.port && rb.port !== 'mock' ? `로봇 · ${rb.fw ? 'v' + rb.fw : ''}` : '로봇';
     connBadge.innerHTML = `<i class="dot"></i>${RB[1]}`;
     document.getElementById('connBlock').dataset.state = RB[0];
-    document.getElementById('connBlock').title = rb.port ? `${rb.port} · 마지막 응답 ${rb.last_rx_s ?? '-'}초 전` : 'micro:bit USB가 연결되지 않았어요';
+    document.getElementById('connBlock').title = rb.port ? `${rb.port} · 마지막 응답 ${rb.last_rx_s ?? '-'}초 전` : 'micro:bit USB가 연결되지 않았습니다';
     const cam = snap.camera || {};
     const camBlock = document.getElementById('camBlock');
     camBlock.hidden = false;
@@ -4460,51 +4930,94 @@
     const sig = `${snap.logs.length}|${last ? last.time + last.text : ''}`;
     if (sig !== hoLogSig) {
       hoLogSig = sig;
-      serialLog.innerHTML = '';
-      for (const item of snap.logs) {
+      const key = (it) => `${it.time}|${it.dir}|${it.text}`;
+      const rendered = serialLog.lastElementChild ? serialLog.lastElementChild.dataset.key : null;
+      let start = 0;
+      if (rendered) {
+        const at = snap.logs.map(key).lastIndexOf(rendered);
+        if (at >= 0) start = at + 1; else serialLog.innerHTML = '';
+      } else {
+        serialLog.innerHTML = '';
+      }
+      const nearBottom = serialLog.scrollHeight - serialLog.scrollTop - serialLog.clientHeight < 40;
+      for (const item of snap.logs.slice(start)) {
         const cls = item.dir === 'TX' ? 'tx' : item.dir === 'RX' ? 'rx' : item.dir === 'ERR' ? 'err' : 'sys';
         const row = document.createElement('div');
-        row.className = 'log-row';
+        row.className = rendered ? 'log-row row-in' : 'log-row';
+        row.dataset.key = key(item);
         row.innerHTML = `<span class="log-t">${item.time}</span><span class="log-d ${cls}">[${item.dir}]</span><span></span>`;
         row.lastChild.textContent = item.text;
         serialLog.appendChild(row);
       }
-      serialLog.scrollTop = serialLog.scrollHeight;
+      while (serialLog.childElementCount > snap.logs.length) serialLog.firstElementChild.remove();
+      if (nearBottom || !rendered) serialLog.scrollTo({ top: serialLog.scrollHeight, behavior: rendered ? 'smooth' : 'auto' });
     }
-    document.getElementById('lcBolt').textContent = snap.samples.bolt;
-    document.getElementById('lcNut').textContent = snap.samples.nut;
+    document.getElementById('lcRed').textContent = snap.samples.red ?? 0;
+    document.getElementById('lcBlue').textContent = snap.samples.blue ?? 0;
+    document.getElementById('lcGreen').textContent = snap.samples.green ?? 0;
     document.getElementById('learnLabel').textContent = snap.detector && snap.detector.yolo ? '사진' : '학습';
+    const vs = snap.vlm || {};
+    const vlmEl = document.getElementById('vlmStatus');
+    vlmEl.hidden = false;
+    vlmEl.dataset.on = vs.online ? '1' : '0';
+    vlmEl.textContent = vs.online ? `VLM ${vs.model} 연결됨` : 'VLM 꺼짐 · 단어 규칙으로 해석';
+    vlmEl.title = vs.online ? `${vs.url} — 문장 이해 + 손 위 공 확인` : (vs.note || 'Ollama 를 실행하면 자동으로 연결됩니다');
+    renderViews(snap);
     const pa = document.getElementById('placeAngle');
     if (document.activeElement !== pa && snap.place_angle != null) pa.value = snap.place_angle;
     renderHandover();
   }
 
+  // ---- motion helpers: 글자가 바뀔 때만 살짝 페이드, 진행 막대는 단계 안에서도 계속 차오름 ----
+  function swapText(el, text) {
+    if (!el || el.textContent === text) return;
+    el.textContent = text;
+    el.classList.remove('swap-in');
+    void el.offsetWidth;                       // 애니메이션 다시 시작
+    el.classList.add('swap-in');
+  }
+  const HO_STEPS = ['IDLE', 'REQUEST', 'RECEIVE', 'VERIFY', 'GRIP', 'PLACE', 'HOME'];
+  const HO_TAU = { REQUEST: 0.9, RECEIVE: 6.0, VERIFY: 1.2, GRIP: 0.8, PLACE: 1.8, HOME: 0.9 };   // 단계별 예상 시간(초)
+  let hoPrevState = 'IDLE';
+  let hoDoneUntil = 0;
+  function handoverProgress(snap) {
+    const i = HO_STEPS.indexOf(snap.state);
+    if (snap.state === 'IDLE') {
+      if (hoPrevState === 'HOME' && !snap.stopped) hoDoneUntil = performance.now() + 900;   // 끝나면 잠깐 꽉 채웠다가 비움
+      return performance.now() < hoDoneUntil ? 100 : 0;
+    }
+    const f = 1 - Math.exp(-(snap.elapsed || 0) / (HO_TAU[snap.state] || 1.5));
+    return Math.min(100, ((i - 1 + 0.92 * f) / 6) * 100);
+  }
+
   function renderHandover() {
     const snap = hoSnap;
     if (!snap) return;
-    const t = snap.target_ko || '부품';
+    const t = snap.target_ko || '공';
     const now = {
       IDLE: snap.stopped ? '비상 정지됨' : '대기 중',
       REQUEST: snap.point && snap.point.phase && snap.point.phase !== 'wait_pick' ? `쟁반 ${snap.tray && snap.tray.pick ? snap.tray.pick + '번 ' : ''}${t} 쪽을 가리키는 중` : (snap.point && snap.point.phase === 'wait_pick' ? `쟁반에서 ${t} 찾는 중` : `${t} 받을 준비 · 손 펴는 중`),
-      RECEIVE: snap.rearm_wait ? '부품을 치워 주세요' : (snap.tray && snap.tray.pick ? `쟁반 ${snap.tray.pick}번(${t})을 손에 올려 주세요` : `${t}을(를) 손에 올려 주세요`),
-      VERIFY: snap.vlm_state === 'checking' ? 'VLM 교차 확인 중' : snap.vlm_state === 'hold' ? 'YOLO·VLM 판단 다름 · 작업자 확인' : '다른 부품이에요 · NG',
+      RECEIVE: snap.rearm_wait ? '공을 치워 주십시오' : (snap.tray && snap.tray.pick ? `쟁반 ${snap.tray.pick}번(${t})을 손에 올려 주십시오` : `${t}을 손에 올려 주십시오`),
+      VERIFY: snap.vlm_state === 'checking' ? `VLM이 손 위 ${t}을 확인하는 중` : snap.vlm_state === 'hold' ? '판단 다름 · 작업자 확인' : '다른 색 공입니다 · NG',
       GRIP: `${t} 쥐는 중`,
       PLACE: `${t} 내려놓는 중`,
       HOME: snap.target ? '손이 비었는지 확인 중' : '복귀 중',
     }[snap.state] || snap.state;
-    nowLabel.textContent = now;
+    swapText(nowLabel, now);
     nowLabel.classList.toggle('warn', snap.tone === 'warn');
     renderManual(snap);
     world.statusOverride = now;
     world.statusTone = snap.stopped || snap.tone === 'warn' ? 'warn'
       : snap.state === 'PLACE' || snap.state === 'HOME' ? 'pass'
       : snap.state === 'IDLE' ? 'idle' : 'accent';
-    simMsg.textContent = snap.message;
+    swapText(simMsg, snap.message);
     simTimer.textContent = `${snap.elapsed.toFixed(1)}s`;
     const idx = ['IDLE', 'REQUEST', 'RECEIVE', 'VERIFY', 'GRIP', 'PLACE', 'HOME'].indexOf(snap.state);
-    simBar.style.width = `${Math.round((idx / 6) * 100)}%`;
+    simBar.style.width = `${handoverProgress(snap).toFixed(1)}%`;
+    hoPrevState = snap.state;
     statusCard.dataset.state = snap.stopped ? 'STOP' : (snap.state === 'PLACE' ? 'HANDOVER' : snap.state === 'RECEIVE' ? 'CONFIRM' : snap.state);
     statusCard.dataset.part = snap.target ? String(HO_PART[snap.target]) : '';
+    if (statusCard.dataset.part) document.body.dataset.part = statusCard.dataset.part; else delete document.body.dataset.part;
     document.querySelectorAll('.sm-cell').forEach((cell, i) => {
       cell.classList.remove('idle-active', 'active', 'pass-active', 'err');
       if (i === idx) cell.classList.add(snap.stopped ? 'err' : i === 0 ? 'idle-active' : i === 5 ? 'pass-active' : 'active');
@@ -4515,8 +5028,8 @@
     document.getElementById('hdrTime').textContent = stx.avg_cycle_s != null ? `${stx.avg_cycle_s}s` : '-';
     const camI = snap.camera || {};
     // 로그 창 실적 칸 (시뮬레이터 값 대신 실물 값)
-    document.getElementById('kpiAcc').textContent = snap.detector && snap.detector.yolo ? 'YOLO' : '모양 규칙';
-    document.getElementById('kpiAccDesc').textContent = snap.detector ? snap.detector.name : '';
+    document.getElementById('kpiAcc').textContent = snap.vlm && snap.vlm.online ? 'VLM' : (snap.detector && snap.detector.yolo ? 'YOLO' : '색 규칙');
+    document.getElementById('kpiAccDesc').textContent = snap.vlm && snap.vlm.online ? `${snap.vlm.model} · 손 위 사진 found 판정` : (snap.detector ? snap.detector.name : '');
     document.getElementById('kpiFalse').textContent = `${stx.rejected || 0}회`;
     document.getElementById('kpiTime').textContent = stx.avg_cycle_s != null ? `${stx.avg_cycle_s}s` : '측정 대기';
     document.getElementById('kpiRate').textContent = stx.success_rate != null ? `${stx.success_rate}%` : '측정 대기';
@@ -4526,8 +5039,8 @@
       kpiRelabeled = true;
       const heads = document.querySelectorAll('.kpi-strip .stat-tile-head > span:first-child');
       const descs = document.querySelectorAll('.kpi-strip .stat-desc');
-      ['부품 인식', '잘못 준 부품 (NG)', '평균 작업 시간', '전달 성공률', '카메라'].forEach((t, i) => { if (heads[i]) heads[i].textContent = t; });
-      if (descs[1]) descs[1].textContent = '요청과 다른 부품을 쥐어 준 횟수';
+      ['공 인식', '잘못 준 공 (NG)', '평균 작업 시간', '전달 성공률', '카메라'].forEach((t, i) => { if (heads[i]) heads[i].textContent = t; });
+      if (descs[1]) descs[1].textContent = '요청과 다른 색 공을 쥐어 준 횟수';
       if (descs[2]) descs[2].textContent = '요청 → 쥐기 → 내려놓기 → 손 빔 확인';
       if (descs[4]) descs[4].textContent = 'USB 웹캠 프레임 수';
     }
@@ -4552,12 +5065,12 @@
       verdictBadge.className = `verdict-badge ${match ? 'pass' : snap.target ? 'fail' : ''} mono`;
       verdictReason.textContent = seen.reason;
       verdictBar.style.width = `${Math.round(seen.confidence * 100)}%`;
-      verdictBar.style.background = match ? 'var(--pass)' : 'var(--text-muted)';
+      verdictBar.style.background = `var(--c-ball-${seen.label}, var(--text-muted))`;   // 보이는 공 색으로 막대가 참
     } else {
-      verdictBadge.textContent = '부품 없음';
+      verdictBadge.textContent = '공 없음';
       verdictBadge.className = 'verdict-badge mono';
       const det = snap.detector ? snap.detector.name : '';
-      verdictReason.textContent = snap.rearm_wait ? '손 영역의 부품을 치워 주세요' : (snap.state === 'RECEIVE' ? `손 영역에 부품을 올려 주세요 · ${det}` : det);
+      verdictReason.textContent = snap.rearm_wait ? '손 영역의 공을 치워 주십시오' : (snap.state === 'RECEIVE' ? `손 영역에 공을 올려 주십시오 · ${det}` : det);
       verdictBar.style.width = '0%';
     }
     verdictDist.textContent = `${cam.fps || 0} FPS${cam.infer_ms ? ` · 추론 ${cam.infer_ms}ms` : ''}`;
@@ -4582,13 +5095,13 @@
       document.getElementById('camStateTitle').textContent = camOff ? '카메라 꺼짐' : '카메라 연결 끊김';
       verdictBadge.textContent = camOff ? '카메라 꺼짐' : '카메라 끊김';
       verdictBadge.className = 'verdict-badge fail mono';
-      verdictReason.textContent = '인식할 수 없어요 — 받기 단계에서는 부품을 올린 뒤 [쥐어줬어요]를 누르면 쥐어요';
+      verdictReason.textContent = '인식할 수 없습니다 — 받기 단계에서는 공을 올린 뒤 [쥐어줬습니다]를 누르면 쥡니다';
       verdictBar.style.width = '0%';
     }
     document.querySelectorAll('[data-learn], #learnBg, #roiBtn').forEach((b) => { b.disabled = !camOk; });
     document.getElementById('camStateDesc').textContent = camOff
-      ? `${cam.index}번 카메라를 꺼 두었어요 — [카메라 켜기] 또는 [카메라 선택]에서 다른 카메라를 고르세요`
-      : `USB 웹캠(${cam.index ?? 1}번)을 꽂거나 [카메라 선택]에서 다른 카메라를 고르세요`;
+      ? `${cam.index}번 카메라를 꺼 두었습니다 — [카메라 켜기] 또는 [카메라 선택]에서 다른 카메라를 고르십시오`
+      : `USB 웹캠(${cam.index ?? 1}번)을 꽂거나 [카메라 선택]에서 다른 카메라를 고르십시오`;
     camWasOk = camOk;
     camWinStatus.textContent = `CAM ${cam.index}`;
   }
@@ -4651,8 +5164,10 @@
     (window.location.protocol === 'http:' || window.location.protocol === 'https:') &&
     (window.self === window.top || new URLSearchParams(location.search).has('embed'));   // 미리보기(iframe)에서도 실물 데이터
 
+  let pollBusy = false;
   async function pollBackend() {
-    if (!canPollBackend) return;
+    if (!canPollBackend || pollBusy || document.hidden) return;
+    pollBusy = true;
     try {
       const res = await fetch('/api/state', { cache: 'no-store' });
       if (!res.ok) return;
@@ -4662,6 +5177,8 @@
       if (snap && snap.state) applyBackendState(snap);
     } catch (_) {
       // Remain in standalone virtual sim
+    } finally {
+      pollBusy = false;
     }
   }
 
@@ -4699,11 +5216,13 @@
         : (st === 'HANDOVER' || st === 'PICK' || st === 'DELIVER' ? 'pass' : 'accent');
     simStateBadge.textContent = world.emergencyStopped ? 'STOP' : st;
     simStateBadge.className = `win-status ${statusCls} mono`;
-    simMsg.textContent = world.message;
-    simDot.className = 'dot ' + (world.emergencyStopped ? 'warn' : (st === 'IDLE' ? '' : statusCls));
-    simBar.style.width = `${world.progress || 0}%`;
-    simBar.style.background = world.emergencyStopped ? 'var(--warning)' : (st === 'HANDOVER' ? 'var(--pass)' : 'var(--accent)');
-    simTimer.textContent = `${Number(world.elapsed || 0).toFixed(1)}s`;
+    if (!handoverMode) {                       // 실물 받기 작업에서는 상태 칸을 renderHandover 만 씀 (두 곳이 번갈아 쓰면 깜빡임)
+      simMsg.textContent = world.message;
+      simDot.className = 'dot ' + (world.emergencyStopped ? 'warn' : (st === 'IDLE' ? '' : statusCls));
+      simBar.style.width = `${world.progress || 0}%`;
+      simBar.style.background = world.emergencyStopped ? 'var(--warning)' : (st === 'HANDOVER' ? 'var(--pass)' : 'var(--accent)');
+      simTimer.textContent = `${Number(world.elapsed || 0).toFixed(1)}s`;
+    }
     resumeBtn.hidden = !world.emergencyStopped;
     stopBtn.classList.toggle('engaged', Boolean(world.emergencyStopped));
 
@@ -4722,13 +5241,13 @@
     const nowLabels = {
       IDLE: '대기 중',
       REQUEST: `${part} 요청 확인 중`,
-      CONFIRM: `${part}을 가져올게요`,
+      CONFIRM: `${part}을 가져오겠습니다`,
       PICK: `${part} 집는 중`,
       DELIVER: `${part} 보내는 중`,
-      HANDOVER: '부품을 받아주세요',
+      HANDOVER: '부품을 받아주십시오',
       RETURN: '부품 되돌려 놓는 중',
     };
-    nowLabel.textContent = world.emergencyStopped ? '비상 정지됨' : (nowLabels[st] || st);
+    if (!handoverMode) nowLabel.textContent = world.emergencyStopped ? '비상 정지됨' : (nowLabels[st] || st);
     if (st === 'IDLE' && lastHudState && lastHudState !== 'IDLE' && typeof markPick === 'function') markPick(null);
     lastHudState = st;
     statusCard.dataset.state = world.emergencyStopped ? 'STOP' : st;
@@ -4808,20 +5327,20 @@
         verdictBadge.className = 'verdict-badge pass mono';
         verdictReason.textContent = picking
           ? `${partName(world.heldBallId)}을(를) 트레이에서 들어 올리는 중`
-          : `${partName(world.heldBallId)}을(를) 트레이에서 꺼냈어요 — 칸이 비었어요`;
+          : `${partName(world.heldBallId)}을(를) 트레이에서 꺼냈습니다 — 칸이 비었습니다`;
         verdictBar.style.background = 'var(--pass)';
       } else if (world.state !== 'IDLE' && world.targetPart) {
         verdictBadge.textContent = '요청됨';
         verdictBadge.className = 'verdict-badge accent mono';
-        verdictReason.textContent = `${partName(world.targetPart)} 칸을 확인했어요`;
+        verdictReason.textContent = `${partName(world.targetPart)} 칸을 확인했습니다`;
         verdictBar.style.background = 'var(--accent)';
       } else {
         const empties = H3D.PARTS.filter((p) => (world.stock[p.id] || 0) <= 0).map((p) => p.name);
         verdictBadge.textContent = empties.length ? '보충 필요' : '트레이 인식 중';
         verdictBadge.className = `verdict-badge ${empties.length ? 'fail' : ''} mono`;
         verdictReason.textContent = empties.length
-          ? `${empties.join(', ')} 칸이 비어 있어요`
-          : `부품 ${seen}개 인식 · 박스를 누르면 바로 요청해요`;
+          ? `${empties.join(', ')} 칸이 비어 있습니다`
+          : `부품 ${seen}개 인식 · 박스를 누르면 바로 요청합니다`;
         verdictBar.style.background = empties.length ? 'var(--warning)' : 'var(--text-muted)';
       }
 
