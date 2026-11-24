@@ -529,6 +529,9 @@ class Runtime:
         threading.Thread(target=self._infer_loop, daemon=True).start()
         threading.Thread(target=self._task_loop, daemon=True).start()
         threading.Thread(target=self._tray_view_loop, daemon=True).start()
+        self.auto_cams = bool(st.get("auto_cams", True))   # 카메라가 새로 잡히면 빈 CAM 칸에 자동으로 띄움
+        self._probe_lock = threading.Lock()
+        threading.Thread(target=self._discovery_loop, daemon=True).start()
         for k, src in (st.get("view_sources") or {}).items():
             if src is not None and 2 <= int(k) <= MAX_VIEWS:
                 self.views[int(k)] = ViewCam(self, int(k), src)
@@ -606,6 +609,111 @@ class Runtime:
         self.view_order = order
         self._save_views()
         return {"ok": True, "reply": "카메라 배치를 바꿨습니다"}
+
+    # ---- 카메라 자동 감지: 운영체제가 아는 카메라 수가 바뀌면 한 번만 열어 보고 빈 칸에 배치 ----
+    @staticmethod
+    def os_camera_count() -> int | None:
+        """카메라를 열지 않고 (불이 켜지지 않게) 연결된 카메라 수만 셈. 모르면 None."""
+        import platform
+        import subprocess
+        try:
+            if platform.system() == "Windows":
+                r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                                    "@(Get-PnpDevice -PresentOnly -Class Camera,Image -ErrorAction SilentlyContinue).Count"],
+                                   capture_output=True, text=True, timeout=8,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                return int(r.stdout.strip() or 0)
+            if platform.system() == "Linux":
+                from glob import glob
+                return len(glob("/sys/class/video4linux/video*"))
+            return len(Runtime.device_names())
+        except Exception:
+            return None
+
+    def probe_cameras(self) -> list[int]:
+        """지금 열리는 카메라 번호들 (쓰는 중인 카메라는 다시 열지 않고 그대로 포함)."""
+        with self._probe_lock:
+            in_use = self.cameras_in_use()
+            found, misses = [], 0
+            for idx in range(self.MAX_CAMERAS):
+                if idx in self.cam_disabled:
+                    continue
+                if idx in in_use:                       # 쓰는 중인 카메라는 다시 열지 않음 (윈도우는 한 프로그램만 열 수 있음)
+                    role = in_use[idx]
+                    v = self.views.get(int(role[4:])) if role.startswith("view") else None
+                    alive = (self.jpeg is not None or not self.cam_error) if role == "hand" else                         (v is not None and (v.jpeg is not None or not v.error))
+                    if alive:
+                        found.append(idx)
+                        misses = 0
+                    else:
+                        misses += 1
+                    continue
+                cap = cv2.VideoCapture(idx)
+                ok = cap.isOpened() and cap.read()[0]
+                cap.release()
+                if ok:
+                    found.append(idx)
+                    misses = 0
+                else:
+                    misses += 1
+                    if misses >= 3 and idx >= 2:
+                        break
+            return found
+
+    def auto_place(self, found: list[int]) -> list[str]:
+        """찾은 카메라를 CAM 칸에: 손 카메라는 지금 번호가 살아 있으면 그대로, 아니면 첫 번째 카메라.
+        나머지는 보이는 순서대로 빈 칸에, 모자라면 분할을 늘림 (최대 4)."""
+        notes = []
+        if not found:
+            return notes
+        if self.camera_index not in found and not self.camera_off():   # 일부러 끈 손 카메라는 바꾸지 않음
+            new_hand = found[0]
+            if new_hand != self.camera_index:
+                self.select_camera("hand", new_hand)
+                notes.append(f"손 카메라 → {new_hand}번")
+        shown = {v.src for v in self.views.values()}
+        extra = [i for i in found if i != self.camera_index and i not in shown]
+        if not extra:
+            return notes
+        want = min(MAX_VIEWS, 1 + len(self.views) + len(extra))
+        if want > self.split:
+            self.set_split(want)
+        for idx in extra:
+            free = [k for k in self.visible_slots() if k != "hand" and int(k) not in self.views]
+            if not free:
+                notes.append(f"{idx}번은 칸이 모자라 띄우지 못함 (최대 {MAX_VIEWS}칸)")
+                continue
+            self.set_view(int(free[0]), idx)
+            notes.append(f"{idx}번 → CAM {self.view_order.index(free[0]) + 1}")
+        return notes
+
+    def _discovery_loop(self) -> None:
+        last = None
+        time.sleep(3.0)                                  # 손 카메라가 먼저 열리도록
+        while self.running:
+            n = self.os_camera_count()
+            if self.auto_cams and (n is None and last is None or n is not None and n != last):
+                try:
+                    found = self.probe_cameras()
+                    notes = self.auto_place(found)
+                    if notes:
+                        self.task._log("SYS", "[카메라 자동] " + " · ".join(notes))
+                    elif last is not None and n is not None and n < last:
+                        self.task._log("SYS", "[카메라 자동] 카메라가 빠졌습니다 — 다시 꽂으면 그 칸에 다시 연결됩니다")
+                except Exception as exc:
+                    self.task._log("ERR", f"[카메라 자동] 찾기 오류: {exc.__class__.__name__}")
+            last = n if n is not None else (last if last is not None else -1)
+            time.sleep(4.0 if n is not None else 15.0)
+
+    def set_auto_cams(self, on: bool) -> dict:
+        self.auto_cams = bool(on)
+        self._save_settings(auto_cams=self.auto_cams)
+        notes = []
+        if self.auto_cams:
+            notes = self.auto_place(self.probe_cameras())
+        msg = ("카메라 자동 배치 켬" + (" — " + " · ".join(notes) if notes else "")) if self.auto_cams else "카메라 자동 배치 끔"
+        self.task._log("SYS", msg)
+        return {"ok": True, "reply": msg}
 
     def _save_views(self) -> None:
         self._save_settings(split=self.split, tray_slot=self.tray_slot, view_order=self.view_order,
@@ -1012,6 +1120,7 @@ class Runtime:
             snap["robot"] = self.link.info()
             snap["camera_roles"] = [("hand" if k == "hand" else f"view{k}") for k in self.visible_slots()]
             snap["view_order"] = list(self.view_order)
+            snap["auto_cams"] = self.auto_cams
             snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
             snap["camera_disabled"] = sorted(self.cam_disabled)
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
@@ -1034,6 +1143,11 @@ class Runtime:
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        if a == "view_auto":
+            out = self.set_auto_cams(bool(p.get("on", not self.auto_cams)))
+            st = self.state()
+            st["result"] = out
+            return st
         if a in ("view_set", "view_split", "view_tray", "view_order"):
             try:
                 out = (self.set_view(int(p.get("slot", 0)), p.get("src")) if a == "view_set"

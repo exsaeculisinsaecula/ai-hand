@@ -2696,6 +2696,9 @@
   .cam-tile.drop-target .tile-view { box-shadow: inset 0 0 0 3px var(--text) !important; }
   .cam-tile .tile-view { transition: box-shadow var(--t-fast) var(--ease); }
   .cam-tile { transition: opacity var(--t-fast) var(--ease); }
+  .split-ctl .auto-btn { width: auto; padding: 0 10px; margin-right: 12px; margin-left: 0; font-family: inherit; }
+  .split-ctl .auto-btn.active { background: var(--c-done); border-color: var(--c-done); color: #fff; }
+  .split-ctl .auto-btn.active::before { content: '● '; font-size: 10px; vertical-align: 1px; }
 </style>
 </head>
 <body>
@@ -2955,7 +2958,7 @@
     <div class="cam-picker-head">
       <b id="camPickTitle">어떤 카메라를 쓰겠습니까?</b>
       <div class="cam-picker-roles" id="camPickRoles" hidden>
-        <button type="button" class="active" data-role="hand">손 카메라</button>
+        <button type="button" class="active" data-role="hand">CAM 1</button>
         <button type="button" data-role="tray">쟁반 카메라</button>
       </div>
       <button type="button" class="mp-btn" id="camRescan">다시 찾기</button>
@@ -3999,7 +4002,7 @@
       return;
     }
     const pos = ((hoSnap && hoSnap.view_order) || ['hand', '2', '3', '4']).indexOf(camPickRole === 'hand' ? 'hand' : camPickRole.replace('view', '')) + 1;
-    camPickMsg.textContent = `${pos > 0 ? `CAM ${pos}` : ROLE_KO[camPickRole]}${camPickRole === 'hand' ? '(손)' : ''}에 넣을 카메라를 누르십시오 · ${lastCams.length}대 찾음`;
+    camPickMsg.textContent = `${pos > 0 ? `CAM ${pos}` : ROLE_KO[camPickRole]}에 넣을 카메라를 누르십시오 · ${lastCams.length}대 찾음`;
     for (const c of lastCams) {
       const card = document.createElement('div');
       card.className = 'cam-card';
@@ -4012,7 +4015,7 @@
         : (c.thumb ? `<img alt="" src="${c.thumb}">` : '<div class="cam-noimg">미리보기 없음</div>');
       const badge = c.off ? '<span class="cam-badge">꺼짐</span>'
         : mine ? '<span class="cam-badge on">사용 중</span>'
-        : other ? `<span class="cam-badge">${ROLE_KO[c.role] || c.role}에서 사용 중</span>` : '';
+        : other ? `<span class="cam-badge">CAM ${((hoSnap && hoSnap.view_order) || ['hand', '2', '3', '4']).indexOf(c.role === 'hand' ? 'hand' : String(c.role).replace('view', '')) + 1}에서 사용 중</span>` : '';
       card.innerHTML = `<button type="button" class="cam-card-pick">${img}<div class="cam-card-meta"><b>${c.index}번</b><span>${c.width ? `${c.width}×${c.height}` : ''}</span>${badge}</div></button>`
         + `<button type="button" class="cam-card-power">${c.off ? '켜기' : '끄기'}</button>`;
       const pick = card.querySelector('.cam-card-pick');
@@ -4076,7 +4079,7 @@
         : '';
       const roles = data.camera_roles || ['hand'];
       if (!roles.includes(camPickRole)) camPickRole = 'hand';
-      camPickRoles.innerHTML = roles.map((ro, i) => `<button type="button" data-role="${ro}" class="${ro === camPickRole ? 'active' : ''}">CAM ${i + 1}${ro === 'hand' ? ' · 손' : ''}</button>`).join('');
+      camPickRoles.innerHTML = roles.map((ro, i) => `<button type="button" data-role="${ro}" class="${ro === camPickRole ? 'active' : ''}">CAM ${i + 1}</button>`).join('');
       camPickRoles.querySelectorAll('[data-role]').forEach((b) => b.addEventListener('click', () => {
         camPickRole = b.dataset.role;
         camPickRoles.querySelectorAll('[data-role]').forEach((x) => x.classList.toggle('active', x === b));
@@ -4654,7 +4657,7 @@
   camGrid.className = 'cam-grid';
   camGrid.dataset.split = '1';
   const CAM_OPTS = ['<option value="">카메라 없음</option>']
-    .concat([0, 1, 2, 3, 4, 5].map((i) => `<option value="${i}">${i}번 카메라</option>`)).join('');
+    .concat([0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => `<option value="${i}">${i}번 카메라</option>`)).join('');
   function tileChrome(id) {
     const hand = id === 'hand';
     return {
@@ -4662,7 +4665,7 @@
       bar: `<div class="tile-bar"><select aria-label="카메라 고르기">${hand ? CAM_OPTS.replace('<option value="">카메라 없음</option>', '') : CAM_OPTS}</select>
         <button type="button" class="tile-btn tile-pick" title="연결된 카메라를 미리보기로 보고 고르기">미리보기</button>
         <button type="button" class="tile-btn tile-power" title="이 카메라 끄기/켜기 (저장됨)">끄기</button>
-        ${hand ? '<span class="tile-role">손</span>' : '<button type="button" class="tile-btn tile-tray" title="이 칸을 쟁반 카메라로 (색 규칙으로 공 찾기)">쟁반</button>'}</div>`,
+        ${hand ? '' : '<button type="button" class="tile-btn tile-tray" title="이 칸을 쟁반 카메라로 (색 규칙으로 공 찾기)">쟁반</button>'}</div>`,
     };
   }
   function buildCamGrid() {
@@ -4682,8 +4685,10 @@
     wireTile(tile);
     const ctl = document.createElement('div');
     ctl.className = 'split-ctl';
-    ctl.innerHTML = '<span>분할</span>' + [1, 2, 3, 4].map((n) => `<button type="button" data-split="${n}">${n}</button>`).join('');
-    ctl.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => postBackendAction('view_split', null, { n: Number(b.dataset.split) })));
+    ctl.innerHTML = '<button type="button" class="auto-btn" title="카메라를 꽂으면 빈 CAM 칸에 자동으로 띄웁니다">자동</button><span>분할</span>'
+      + [1, 2, 3, 4].map((n) => `<button type="button" data-split="${n}">${n}</button>`).join('');
+    ctl.querySelectorAll('[data-split]').forEach((b) => b.addEventListener('click', () => postBackendAction('view_split', null, { n: Number(b.dataset.split) })));
+    ctl.querySelector('.auto-btn').addEventListener('click', () => postBackendAction('view_auto', null, { on: !(hoSnap && hoSnap.auto_cams) }));
     const status = document.getElementById('camWinStatus');
     status.parentNode.insertBefore(ctl, status);
   }
@@ -4783,13 +4788,15 @@
     const order = snap.view_order || ['hand', '2', '3', '4'];
     const views = snap.views || [];
     const cam = snap.camera || {};
-    document.querySelectorAll('.split-ctl button').forEach((b) => b.classList.toggle('active', Number(b.dataset.split) === split));
+    document.querySelectorAll('.split-ctl [data-split]').forEach((b) => b.classList.toggle('active', Number(b.dataset.split) === split));
+    const ab = document.querySelector('.split-ctl .auto-btn');
+    if (ab) ab.classList.toggle('active', Boolean(snap.auto_cams));
     camGrid.dataset.split = String(split);
     if (!camGrid.classList.contains('arranging')) placeTiles(order, split);
     // 손 카메라 칸
     const ht = camGrid.querySelector('.hand-tile');
     if (ht) {
-      ht.querySelector('.tile-name').innerHTML = `${cam.index != null ? `${cam.index}번` : ''}<i class="role-chip hand">손</i>`;
+      ht.querySelector('.tile-name').textContent = cam.index != null ? `${cam.index}번` : '';
       const sel = ht.querySelector('select');
       if (document.activeElement !== sel && cam.index != null) sel.value = String(cam.index);
       const pw = ht.querySelector('.tile-power');
@@ -4810,7 +4817,7 @@
       }
       [...sel.options].forEach((o) => {
         if (o.value === '' || !/^\d+$/.test(o.value)) return;
-        o.textContent = `${o.value}번 카메라${String(cam.index) === o.value ? ' (손과 같은 영상)' : ''}`;
+        o.textContent = `${o.value}번 카메라${String(cam.index) === o.value ? ' (CAM ' + (order.indexOf('hand') + 1) + '과 같은 영상)' : ''}`;
       });
       if (document.activeElement !== sel) sel.value = v ? String(v.src) : '';
       const img = t.querySelector('img');
@@ -4819,7 +4826,7 @@
         img.dataset.want = want;
         if (v) img.src = `/api/video?view=${slot}&t=${Date.now()}`; else img.removeAttribute('src');
       }
-      t.querySelector('.tile-name').innerHTML = `${srcName.replace(/</g, '&lt;')}${v && v.shared ? '<i class="role-chip hand">손</i>' : ''}${isTray ? '<i class="role-chip tray">쟁반</i>' : ''}`;
+      t.querySelector('.tile-name').innerHTML = `${srcName.replace(/</g, '&lt;')}${isTray ? '<i class="role-chip tray">쟁반</i>' : ''}`;
       t.querySelector('.cam-live').hidden = !(v && v.ok);
       t.querySelector('.tile-live').textContent = `작동 중 · ${Math.round((v && v.fps) || 0)}fps`;
       const stateEl = t.querySelector('.cam-state');

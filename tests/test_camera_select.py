@@ -286,3 +286,40 @@ class MultiCamTests(unittest.TestCase):
         out = self.rt.select_camera("view2", 4)
         self.assertTrue(out["ok"])
         self.assertEqual(self.rt.views[2].src, 4)
+
+
+class AutoCamTests(MultiCamTests):
+    """카메라가 새로 잡히면 빈 CAM 칸에 자동 배치"""
+
+    def setUp(self):
+        super().setUp()
+        self.rt.split = 1
+
+    def test_missing_hand_camera_takes_first_found_and_rest_fill_tiles(self):
+        notes = self.rt.auto_place([0, 2, 3])                   # 손 카메라(1번)가 없음
+        self.assertEqual(self.rt.camera_index, 0)
+        self.assertEqual(self.rt.split, 3)
+        self.assertEqual(sorted(v.src for v in self.rt.views.values()), [2, 3])
+        self.assertTrue(any("손 카메라" in n for n in notes))
+
+    def test_working_hand_camera_is_kept(self):
+        self.rt.auto_place([1, 4])
+        self.assertEqual(self.rt.camera_index, 1)
+        self.assertEqual([v.src for v in self.rt.views.values()], [4])
+        self.assertEqual(self.rt.split, 2)
+
+    def test_already_shown_cameras_are_not_duplicated(self):
+        self.rt.auto_place([1, 4])
+        self.rt.auto_place([1, 4])
+        self.assertEqual(len(self.rt.views), 1)
+
+    def test_more_than_four_cameras(self):
+        notes = self.rt.auto_place([1, 2, 3, 4, 5])
+        self.assertEqual(self.rt.split, 4)
+        self.assertEqual(len(self.rt.views), 3)
+        self.assertTrue(any("모자라" in n for n in notes))
+
+    def test_switched_off_hand_camera_is_not_replaced(self):
+        self.rt.cam_disabled = {1}
+        self.rt.auto_place([0])
+        self.assertEqual(self.rt.camera_index, 1)
