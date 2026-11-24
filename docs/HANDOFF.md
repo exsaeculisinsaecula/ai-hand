@@ -16,6 +16,17 @@
 ## 2. VLM 연동 (2026-11-24 적용 — 팀 vlm-go 반영)
 출처: https://github.com/jihustar12-design/vlm-go (`vlm_go.py`, `microbit_go.py`, 2026-11-22)
 
+### 손 위 공 인식 = VLM (2026-11-24 변경)
+| 단계 | 누가 판단 |
+|---|---|
+| 공이 놓였는지 | **화면 변화** (`detect_change`: 손을 편 직후의 빈 손 사진과 달라진 덩어리 + 1초 정지) — 색과 무관 |
+| 어떤 공인지 → 쥐기/NG | **VLM** `check_ball`: "가장 눈에 띄는 공의 색 / 없음" (실제 Gemma 비교에서 5/5, 다른 문장들은 빨간 공을 놓침) |
+| VLM 이 '없음' | 쥐지도 NG 하지도 않고 계속 기다림 (2.5초 뒤 다시 확인) |
+| 내려놓은 뒤 손 빔 확인 | **VLM** (`_empty_check_vlm`) |
+| 색 규칙 | Ollama 가 꺼졌거나 VLM 이 답하지 못한 그 한 번만 (화면·로그에 표시) |
+| VLM 관찰 | 쥐기 승인 직후 자동 + 칸의 [관찰] 버튼: 물체·색·개수·위치·상태·주변·메모 (약 2~3초, **판정에는 안 씀** — 넓은 화면의 주변 설명은 틀릴 수 있음) |
+- 실물 기록 (팀원 테스트, 이전 found 방식): 13번 중 12번 맞음. 바뀐 '어떤 공' 방식은 실물 공으로 다시 재야 함.
+
 ### 대시보드 검색창 → 로봇까지 실제 흐름
 ```
 [검색창] "사과 색깔 공 하나 줘"
@@ -98,6 +109,6 @@ python handover_app.py              # 대시보드가 Ollama 를 자동으로 �
 
 ## 4. 확인 방법
 ```powershell
-python -m unittest discover -s tests            # 130개 (팀 test 이미지가 없으면 2개 건너뜀)
+python -m unittest discover -s tests            # 134개 (팀 test 이미지가 없으면 2개 건너뜀)
 python handover_app.py --mock                   # 로봇 없이 대시보드 흐름 확인 → http://127.0.0.1:8090/index.html
 ```

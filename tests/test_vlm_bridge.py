@@ -18,16 +18,23 @@ class FakeBridge(VlmBridge):
         self.calls.append("image" if images else "text")
         if self.fail:
             raise TimeoutError("timed out")
-        if images:                                 # 손 위 확인: 사진 속 공(check_label)이 프롬프트 대상과 같으면 true
-            name = {"red": "빨간 공", "blue": "파란 공", "green": "초록 공"}.get(self.check_label, "없음")
+        if images:
             if self.check_label == "garbage":
                 return "잘 모르겠어요"
+            if schema and "ball" in schema.get("properties", {}):   # 손 위 공 인식: 사진 속 공(check_label)의 색
+                return '{"ball": "%s"}' % {"red": "빨간색", "blue": "파란색", "green": "초록색"}.get(self.check_label, "없음")
+            name = {"red": "빨간 공", "blue": "파란 공", "green": "초록 공"}.get(self.check_label, "없음")
             return '{"found": %s}' % ("true" if f"'{name}'" in prompt else "false")
         return self.text_reply
 
     def submit_check(self, img):
         f = Future()
         f.set_result(self.check_part(img))
+        return f
+
+    def submit_ball(self, img):
+        f = Future()
+        f.set_result(self.check_ball(img))
         return f
 
     def submit_found(self, img, target):
@@ -116,6 +123,7 @@ class VerifyFlowTest(unittest.TestCase):
         clock, link = FakeClock(), FakeLink()
         task = HandoverTask(link, clock=clock, vlm=FakeBridge(check_label=on_palm, verify_below=verify_below))
         task.frame_source = lambda: np.full((480, 640, 3), 255, np.uint8)
+        task.palm_crop = lambda: np.full((200, 200, 3), 255, np.uint8)
         task.request("빨간 공 줘", pre=("red", "빨간 공", {"method": "VLM"}))
         link.rx.append("DONE,OPEN"); task.step(None)
         self.assertEqual(task.state, "RECEIVE")
@@ -136,7 +144,7 @@ class VerifyFlowTest(unittest.TestCase):
         self.assertEqual(task.state, "GRIP")
         self.assertEqual(task.vlm.calls, ["image"])
         self.assertEqual(link.sent[-1], "GRIP")
-        self.assertTrue(task.snapshot()["vlm_last"]["found"])
+        self.assertEqual(task.snapshot()["vlm_last"]["saw"], "빨간 공")
 
     def test_vlm_found_false_sends_ng_even_if_color_rule_agrees(self):
         task, link, clock = self.make("blue")               # 손 위엔 파란 공, 색 규칙은 빨강이라고 착각
@@ -154,7 +162,7 @@ class VerifyFlowTest(unittest.TestCase):
 
     def test_cancel_while_vlm_checking(self):
         task, link, clock = self.make("red")
-        task.vlm.submit_found = lambda img, target: Future()     # 응답이 아직 안 옴
+        task.vlm.submit_ball = lambda img: Future()              # 응답이 아직 안 옴
         res = {"label": "red", "confidence": 0.8, "box": (200, 150, 80, 80), "motion": 0.0}
         for _ in range(8):
             clock.t += 0.2
@@ -176,6 +184,47 @@ class VerifyFlowTest(unittest.TestCase):
         out = task.request("잔디 색 공 하나")
         self.assertEqual((out["target"], out["robot"], out["info"]["method"]), ("green", "OPEN", "VLM"))
         self.assertEqual(link.sent[-1], "OPEN")
+
+
+class VlmPalmTest(unittest.TestCase):
+    """VLM 이 손 위 공을 인식 (색 규칙은 VLM 이 답하지 못할 때만)"""
+    make = VerifyFlowTest.make
+    place = VerifyFlowTest.place
+
+    def test_object_without_color_is_judged_by_vlm(self):
+        task, link, clock = self.make("red")
+        self.place(task, clock, label="object")                # 색 규칙 없이 '무언가 놓임'
+        self.assertEqual(task.state, "GRIP")
+        self.assertEqual(task.snapshot()["vlm_last"]["saw"], "빨간 공")
+
+    def test_vlm_sees_no_ball_keeps_waiting(self):
+        task, link, clock = self.make(None)                    # VLM: 없음
+        self.place(task, clock, label="object")
+        self.assertEqual(task.state, "RECEIVE")
+        self.assertNotIn("NG", link.sent)
+        self.assertNotIn("GRIP", link.sent)
+
+    def test_empty_hand_check_by_vlm(self):
+        task, link, clock = self.make("red")
+        self.place(task, clock)
+        link.rx.append("DONE,GRIP"); task.step(None)
+        link.rx.append("DONE,PLACE"); task.step(None)
+        self.assertEqual(task.state, "HOME")
+        task.vlm.check_label = None                            # 내려놓은 뒤 손 위: 없음
+        clock.t += 2.0
+        task.step(None); task.step(None)
+        self.assertEqual(task.state, "IDLE")
+        self.assertEqual(task.done_count, 1)
+        self.assertEqual(task.snapshot()["vlm_last"]["kind"], "empty")
+
+    def test_ball_left_in_hand_by_vlm_is_failure(self):
+        task, link, clock = self.make("red")
+        self.place(task, clock)
+        link.rx.append("DONE,GRIP"); task.step(None)
+        link.rx.append("DONE,PLACE"); task.step(None)
+        clock.t += 2.0
+        task.step(None); task.step(None)                       # VLM 이 여전히 빨간 공을 봄
+        self.assertEqual((task.state, task.fail_count), ("IDLE", 1))
 
 
 class TrayTest(unittest.TestCase):

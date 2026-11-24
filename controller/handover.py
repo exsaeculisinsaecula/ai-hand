@@ -82,6 +82,11 @@ class HandoverTask:
         self._vlm_hold = False                  # VLM 과 YOLO 가 달라 작업자 확인을 기다리는 중
         self.vlm_blocked = 0                    # VLM 이 found=false 로 막은 횟수
         self.last_vlm: dict | None = None       # 마지막 VLM 손 위 확인 결과
+        self.palm_crop = None                   # () -> 손 영역 사진 (Runtime 이 넣어 줌)
+        self.on_grip_approved = None            # (손 사진) -> None : VLM 이 쥐기를 승인하면 자세한 관찰을 뒤에서 돌림
+        self.rebaseline = False                 # True 면 Runtime 이 지금 화면을 '빈 손' 배경으로 다시 찍음
+        self._vlm_retry_at = 0.0                # VLM 이 '공 없음' 이라고 한 뒤 다시 묻기까지
+        self._empty_vlm_started = False
         self.tray: dict = {"items": [], "pick": None}   # 쟁반 위 YOLO 탐지 (번호는 왼쪽부터)
         self._tray_logged = None
         # 가리키기: 쟁반 왼쪽 끝/오른쪽 끝을 향하는 손목 각도 (None 이면 끔)
@@ -128,7 +133,12 @@ class HandoverTask:
         self._streak = 0
         self._force_verify = False
 
+    def vlm_active(self) -> bool:
+        """VLM 이 손 위 공을 판정하는 중인지 (Ollama 연결 + 손 위 확인 켜짐)"""
+        return self.vlm is not None and self.vlm.should_check(0.0)
+
     def _finish(self, ok: bool, note: str) -> None:
+        self._vlm_job = None
         name = LABEL_KO.get(self.target or "", "공")
         if ok:
             self.done_count += 1
@@ -338,7 +348,10 @@ class HandoverTask:
         elif self.state == "RECEIVE" and frame_result is not None:
             self._receive(frame_result)
         elif self.state == "HOME" and self._check_total >= 0 and self.target:
-            self._empty_check(frame_result, now)
+            if self.vlm_active() or self._vlm_job is not None:
+                self._empty_check_vlm(frame_result, now)
+            else:
+                self._empty_check(frame_result, now)
 
     def _receive(self, res: dict) -> None:
         label = res.get("label")
@@ -369,20 +382,31 @@ class HandoverTask:
         if seen and not hand_clear:
             self.message = "손 영역에 움직임이 있습니다 — 공을 올린 뒤 손을 빼 주십시오"
         if self._streak >= self.stable_frames:
+            if self.clock() < self._vlm_retry_at:      # VLM 이 방금 '공 없음' — 잠깐 뒤에 다시 물음
+                return
             self._reset_detection()
             self._verify(res)
 
     def _verify(self, res: dict) -> None:
         label = res["label"]
-        self._log("SYS", f"[닿음] 손 영역에 {LABEL_KO[label]} ({res.get('confidence', 0):.2f}) — {res.get('reason', '')}")
-        # VLM 이 켜져 있으면 손 위 사진을 VLM 이 판정 (팀 vlm-go 방식: found true/false)
-        if self.vlm is not None and self.vlm.should_check(float(res.get("confidence", 0.0)))                 and self._start_vlm_check(res):
+        self._log("SYS", f"[닿음] 손 영역에 {LABEL_KO.get(label, label)} ({res.get('confidence', 0):.2f}) — {res.get('reason', '')}")
+        # VLM 이 켜져 있으면 손 위 사진을 VLM 이 보고 어떤 공인지 판정
+        if self.vlm_active() and self._start_vlm_check(res):
             return
-        self._decide_by_rule(res)
+        rule = res.get("rule_label", label)
+        if rule not in LABEL_KO or rule in ("object", "none"):
+            self._vlm_hold = True                       # 색 규칙도 모름 → 작업자 확인
+            self._enter("VERIFY", "공 색을 판정할 수 없습니다 — 맞으면 [쥐어줬습니다], 아니면 취소", "warn")
+            return
+        self._decide_by_rule({**res, "label": rule})
 
     def _decide_by_rule(self, res: dict, note: str = "") -> None:
         """색 규칙 판단대로 쥐거나(GRIP) NG"""
-        label = res["label"]
+        label = res.get("rule_label", res["label"]) if res["label"] == "object" else res["label"]
+        if label not in LABEL_KO or label in ("object", "none"):
+            self._vlm_hold = True
+            self._enter("VERIFY", f"공 색을 판정할 수 없습니다{note} — 맞으면 [쥐어줬습니다], 아니면 취소", "warn")
+            return
         if label == self.target:
             self._enter("GRIP", f"{LABEL_KO[label]} 확인{note} — 쥐는 중", "pass")
             self._send("GRIP")
@@ -417,40 +441,89 @@ class HandoverTask:
                             f"쟁반에서 {name}이 안 보입니다 — {name}을 손 영역에 올려 주십시오")
 
     # ---- VLM 손 위 확인 ----
+    def _palm_image(self, res: dict | None = None):
+        img = self.palm_crop() if self.palm_crop else None
+        if img is None and res is not None:
+            frame = self.frame_source() if self.frame_source else None
+            img = self.vlm.crop(frame, res.get("box"))
+        return img
+
     def _start_vlm_check(self, res: dict) -> bool:
-        frame = self.frame_source() if self.frame_source else None
-        img = self.vlm.crop(frame, res.get("box"))
+        img = self._palm_image(res)
         if img is None:
             return False                                 # 사진이 없으면 색 규칙 판단대로
-        self._vlm_job = (self.vlm.submit_found(img, self.target), res)
-        self._enter("VERIFY", f"VLM이 손 위에 {LABEL_KO[self.target]}이 있는지 확인하는 중", "accent")
+        self._vlm_job = (self.vlm.submit_ball(img), res, "verify")
+        self._enter("VERIFY", "VLM이 손 위의 공을 확인하는 중", "accent")
         return True
 
+    def _empty_check_vlm(self, res: dict | None, now: float) -> None:
+        """내려놓은 뒤: 손이 정면으로 돌아오면(1.5초) 손 위 사진을 VLM 에 한 번 보여 줘 비었는지 확인"""
+        if res is not None:                              # VLM 이 답하지 못할 때를 대비해 화면 변화도 셈
+            self._check_total += 1
+            if res.get("label") not in (None, "none") and res.get("confidence", 0) >= self.min_conf:
+                self._check_seen += 1
+        if self._vlm_job is not None:
+            self._vlm_result()
+            return
+        if self._empty_vlm_started or now - self.entered < self.empty_check_s:
+            return
+        self._empty_vlm_started = True
+        img = self._palm_image()
+        if img is None:
+            self._empty_check(None, now)
+            return
+        self._vlm_job = (self.vlm.submit_ball(img), None, "empty")
+        self.message = "VLM이 손이 비었는지 확인하는 중"
+
     def _vlm_result(self) -> None:
-        fut, res = self._vlm_job
+        fut, res, kind = self._vlm_job
         if not fut.done():
             return
         self._vlm_job = None
         try:
             v = fut.result()
         except Exception as exc:
-            v = {"found": None, "raw": str(exc), "seconds": 0, "ok": False}
-        name = LABEL_KO[self.target]
+            v = {"label": None, "empty": False, "raw": str(exc), "seconds": 0, "ok": False}
+        name = LABEL_KO.get(self.target or "", "공")
         st = self.vlm.stats
-        self.last_vlm = {"found": v["found"], "raw": v["raw"], "seconds": v["seconds"], "target": self.target}
-        if v["found"] is True:
+        saw = LABEL_KO[v["label"]] if v.get("label") else ("없음" if v.get("empty") else "모름")
+        self.last_vlm = {"kind": kind, "label": v.get("label"), "empty": v.get("empty"), "saw": saw,
+                         "raw": v["raw"], "seconds": v["seconds"], "target": self.target}
+        if kind == "empty":                              # 내려놓은 뒤 손 빔 확인
+            if v.get("empty"):
+                self._log("SYS", f"[VLM 확인] 내려놓은 뒤 손 위: 없음 ({v['seconds']}s)")
+                self._finish(True, "· VLM 손 비었음 확인")
+            elif v.get("label"):
+                self._log("SYS", f"[VLM 확인] 내려놓은 뒤 손 위: {saw} ({v['seconds']}s)")
+                self._finish(False, f"VLM: 내려놓은 뒤에도 손에 {saw}이 보입니다")
+            else:
+                st["check_fail"] += 1
+                self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 화면 변화로 판단")
+                self._empty_check(None, self.clock() + self.empty_check_s)
+            return
+        if v.get("label") == self.target:
             st["check_agree"] += 1
-            self._log("SYS", f"[VLM 확인] {name} 있음 → found=true ({v['seconds']}s) — 로봇에 GRIP 전송")
+            self._log("SYS", f"[VLM 확인] 손 위: {saw} ({v['seconds']}s) — 요청과 같음 → 로봇에 GRIP 전송")
             self._enter("GRIP", f"VLM 확인: {name} 맞음 — 쥐는 중", "pass")
             self._send("GRIP")
+            if self.on_grip_approved is not None:        # 쥐고 내려놓는 동안(약 5초) 자세한 관찰 — 판정을 늦추지 않음
+                img = self._palm_image(res)
+                if img is not None:
+                    self.on_grip_approved(img)
             return
-        if v["found"] is False:
+        if v.get("label"):
             st["check_disagree"] += 1
             self.vlm_blocked += 1
             self.reject_count += 1
-            self._log("SYS", f"[VLM 확인] {name} 없음 → found=false ({v['seconds']}s) — 로봇에 NG 전송")
-            self._enter("VERIFY", f"VLM 확인: 손 위의 공은 {name}이 아닙니다 — {name}을 주십시오", "warn")
+            self._log("SYS", f"[VLM 확인] 손 위: {saw} ({v['seconds']}s) — 요청({name})과 다름 → 로봇에 NG 전송")
+            self._enter("VERIFY", f"VLM 확인: 손 위의 공은 {saw}입니다 — {name}을 주십시오", "warn")
             self._send("NG")
+            return
+        if v.get("empty"):                               # 공이 아닌 것(사람 손 등)이 놓였거나 공이 안 보임
+            self._log("SYS", f"[VLM 확인] 손 위: 공 없음 ({v['seconds']}s) — 계속 기다림")
+            self._enter("RECEIVE", f"VLM: 손 위에 공이 보이지 않습니다 — {name}을 손바닥에 올려 주십시오", "warn")
+            self._reset_detection()
+            self._vlm_retry_at = self.clock() + 2.5
             return
         st["check_fail"] += 1                           # VLM 응답 없음 → 색 규칙으로 대신
         self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 색 규칙으로 판단")
@@ -514,6 +587,7 @@ class HandoverTask:
         elif what == "PLACE" and self.state == "PLACE":
             self._check_seen = 0
             self._check_total = 0
+            self._empty_vlm_started = False
             self._enter("HOME", "내려놓기 완료 — 손이 비었는지 확인 중", "pass")
         elif what == "HOME":
             if self.state == "HOME" and self.target:

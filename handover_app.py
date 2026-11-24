@@ -24,7 +24,7 @@ import webbrowser
 import cv2
 
 from controller.handover import HandoverTask
-from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts, find_balls
+from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts, detect_change, find_balls
 
 ROOT = Path(__file__).resolve().parent
 
@@ -474,7 +474,11 @@ class Runtime:
         self.tray_roi = tray_roi                    # 쟁반 영역(정규화). 없으면 '손 영역 밖 전체'를 쟁반으로 봄
         self.link = link
         self.task = HandoverTask(link, vlm=vlm)
-        self.task.frame_source = lambda: self.frame           # VLM 교차 확인용 현재 프레임
+        self.task.frame_source = lambda: self.frame           # VLM 확인용 현재 프레임
+        self.task.palm_crop = self._palm_crop                  # VLM 에 보여 줄 손 영역 사진
+        self.task.on_grip_approved = lambda img: self.start_describe(img, "손 위 (쥐기 승인 직후)")
+        self.vlm_detail: dict | None = None                    # VLM 관찰 (여러 정보) 마지막 결과
+        self._describe_busy = False
         self.clf = PartClassifier()                 # YOLO 를 못 쓸 때의 대체 판별기
         self.yolo = None
         self.detector_info = "색 규칙 (공 감지 · VLM 이 꺼져 있을 때 판정)"
@@ -754,6 +758,43 @@ class Runtime:
         self.SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         self.SETTINGS_FILE.write_text(json.dumps(st, ensure_ascii=False), encoding="utf-8")
 
+    def start_describe(self, img, source: str) -> dict:
+        """VLM 관찰: 무엇인지 · 색 · 개수 · 위치 · 상태 · 주변 · 메모 를 한 번에 (뒤에서, 약 2~3초)"""
+        vlm = self.task.vlm
+        if vlm is None or not vlm.online:
+            return {"ok": False, "reply": "VLM 이 꺼져 있어 관찰할 수 없습니다"}
+        if img is None:
+            return {"ok": False, "reply": "카메라 영상이 없습니다"}
+        if self._describe_busy:
+            return {"ok": False, "reply": "VLM 이 이미 관찰하는 중입니다"}
+        self._describe_busy = True
+        self.vlm_detail = {"source": source, "busy": True, "fields": (self.vlm_detail or {}).get("fields", {})}
+
+        def done(fut):
+            try:
+                r = fut.result()
+            except Exception:
+                r = {"fields": {}, "seconds": 0, "ok": False}
+            self.vlm_detail = {"source": source, "busy": False, "time": time.strftime("%H:%M:%S"), **r}
+            self._describe_busy = False
+            if r["ok"]:
+                f = r["fields"]
+                self.task._log("SYS", f"[VLM 관찰] {source}: {f.get('object', '-')} · {f.get('state', '-')} · "
+                                      f"{f.get('position', '-')} ({r['seconds']}s)")
+        vlm.submit_describe(img.copy()).add_done_callback(done)
+        return {"ok": True, "reply": f"VLM이 {source} 화면을 관찰하는 중입니다"}
+
+    def _palm_crop(self, margin: float = 0.12):
+        """손 영역(+여유)을 잘라 VLM 에 보여 줄 사진"""
+        f = self.frame
+        if f is None:
+            return None
+        h, w = f.shape[:2]
+        x0, y0, x1, y1 = self.palm_roi
+        mx, my = (x1 - x0) * margin, (y1 - y0) * margin
+        c = f[int(max(0, y0 - my) * h):int(min(1, y1 + my) * h), int(max(0, x0 - mx) * w):int(min(1, x1 + mx) * w)]
+        return c.copy() if c.size else None
+
     def set_roi(self, x0, y0, x1, y1) -> bool:
         x0, x1 = sorted((max(0.0, min(1.0, float(x0))), max(0.0, min(1.0, float(x1)))))
         y0, y1 = sorted((max(0.0, min(1.0, float(y0))), max(0.0, min(1.0, float(y1)))))
@@ -937,12 +978,21 @@ class Runtime:
                     self.task._log("ERR", f"YOLO 추론 오류: {exc}")
                     dets, res = [], PartResult("none", 0.0, "추론 오류")
             else:
+                if self.task.rebaseline:                 # VLM: '공 없음' → 지금 화면을 빈 손 배경으로
+                    self.task.rebaseline = False
+                    self.recv_bg = frame.copy()
                 bg = self.recv_bg if self.recv_bg is not None else self.manual_bg
-                res = self.clf.classify(frame, roi=roi, background=bg)
+                rule = self.clf.classify(frame, roi=roi, background=bg)
+                if self.task.vlm_active() and roi is not None and bg is not None:
+                    res = detect_change(frame, roi, bg)  # 색과 무관하게 '무언가 놓였는지'만 → 판정은 VLM
+                else:
+                    res = rule
                 dets = [{"label": res.label, "conf": res.confidence, "box": res.box}] if res.box else []
             self.infer_ms = 0.8 * self.infer_ms + 0.2 * (time.perf_counter() - t0) * 1000
             d = res.to_dict()
             d["motion"] = round(motion, 2)
+            if self.yolo is None:
+                d["rule_label"] = rule.label            # VLM 이 답하지 못할 때만 쓰는 색 규칙 결과
             tray_items = self._tray_items(frame, dets)
             with self.lock:
                 self.overlay = {"dets": dets, "best": d if res.label != "none" else None}
@@ -1136,12 +1186,13 @@ class Runtime:
             snap["camera_roles"] = [("hand" if k == "hand" else f"view{k}") for k in self.visible_slots()]
             snap["view_order"] = list(self.view_order)
             snap["auto_cams"] = self.auto_cams
+            snap["vlm_detail"] = self.vlm_detail
             snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
             snap["camera_disabled"] = sorted(self.cam_disabled)
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
                               "running": self._camera_ok(), "infer_ms": round(self.infer_ms)}
-            vlm_on = self.task.vlm is not None and self.task.vlm.online and self.task.vlm.verify_below > 0
-            snap["detector"] = {"name": (f"VLM {self.task.vlm.model} 이 판정 · 색 규칙은 공이 놓였는지만 감지" if vlm_on
+            vlm_on = self.task.vlm_active()
+            snap["detector"] = {"name": (f"VLM {self.task.vlm.model} 이 손 위 공을 판정 · 놓임은 화면 변화로 감지" if vlm_on
                                          else self.detector_info), "yolo": self.yolo is not None,
                                 "labels": list(self.yolo.names.values()) if self.yolo else list(LABELS)}
             snap["samples"] = self._capture_counts() if self.yolo else self.clf.counts()
@@ -1160,6 +1211,19 @@ class Runtime:
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        if a == "describe":                               # 칸의 [관찰] 버튼
+            slot = str(p.get("slot", "hand"))
+            order = self.view_order
+            pos = order.index(slot) + 1 if slot in order else 1
+            if slot == "hand":
+                img = self.frame
+            else:
+                v = self.views.get(int(slot)) if slot.isdigit() else None
+                img = v.frame if v is not None else None
+            out = self.start_describe(img, f"CAM {pos}")
+            st = self.state()
+            st["result"] = out
+            return st
         if a == "view_auto":
             out = self.set_auto_cams(bool(p.get("on", not self.auto_cams)))
             st = self.state()

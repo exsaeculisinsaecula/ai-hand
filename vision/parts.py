@@ -20,7 +20,7 @@ import numpy as np
 LABELS = ("red", "blue", "green")            # 받을 공 3종
 YOLO_LABELS = LABELS                         # (공 YOLO 모델이 생기면) 이 이름으로 학습할 것
 SUPPORTED = LABELS                           # 요청 가능한 공
-LABEL_KO = {"red": "빨간 공", "blue": "파란 공", "green": "초록 공", "none": "없음"}
+LABEL_KO = {"red": "빨간 공", "blue": "파란 공", "green": "초록 공", "object": "물체", "none": "없음"}
 DATA_DIR = Path(__file__).resolve().parents[1] / "data" / "parts"
 
 
@@ -162,6 +162,35 @@ def find_balls(frame: np.ndarray, roi=None, exclude=None, min_area: float = 0.00
         if len(out) >= max_balls:
             break
     return out
+
+
+def detect_change(frame: np.ndarray, roi, background: np.ndarray, min_frac: float = 0.025) -> PartResult:
+    """색과 상관없이 '빈 손 배경과 달라진 덩어리'가 있는지만 본다 (VLM 이 판정하기 전 단계).
+    → PartResult("object", 비율 기반 점수, box=원본 좌표) 또는 PartResult("none")"""
+    img, scale = _prep(frame)
+    bg, _ = _prep(background)
+    if bg.shape != img.shape:
+        return PartResult("none", 0.0, "배경 없음")
+    h, w = img.shape[:2]
+    x0, y0, x1, y1 = (int(roi[0] * w), int(roi[1] * h), int(roi[2] * w), int(roi[3] * h)) if roi else (0, 0, w, h)
+    a = cv2.GaussianBlur(img[y0:y1, x0:x1], (5, 5), 0)
+    b = cv2.GaussianBlur(bg[y0:y1, x0:x1], (5, 5), 0)
+    if a.size == 0:
+        return PartResult("none", 0.0, "손 영역 없음")
+    diff = cv2.absdiff(a, b).max(axis=2)                       # 밝기·색 어느 쪽이 달라져도
+    mask = (diff > 32).astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8), iterations=2)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    best = max(contours, key=cv2.contourArea, default=None)
+    area = (x1 - x0) * (y1 - y0)
+    frac = cv2.contourArea(best) / max(1, area) if best is not None else 0.0
+    if frac < min_frac:
+        return PartResult("none", 0.0, "손 영역에 놓인 것이 없습니다")
+    bx, by, bw, bh = cv2.boundingRect(best)
+    inv = 1.0 / scale
+    return PartResult("object", min(0.95, 0.5 + frac * 2), f"손 영역에 무언가 놓임 ({frac:.0%})",
+                      (int((bx + x0) * inv), int((by + y0) * inv), int(bw * inv), int(bh * inv)))
 
 
 class PartClassifier:

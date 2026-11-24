@@ -2732,6 +2732,27 @@
   body.handover-mode .cam-grid .tile-view > .cam-stage { top: var(--tile-head) !important; height: calc(100% - var(--tile-head)) !important; }
   .cam-tile > .tile-view > img { top: var(--tile-head) !important; height: calc(100% - var(--tile-head)) !important; }
   .cam-tile > .tile-view > .cam-state { top: var(--tile-head); }
+
+  /* ===== VLM 관찰 (여러 정보 한 번에) ===== */
+  .vlm-detail { padding: 8px 14px 10px; border-top: 1px solid var(--line-faint); background: var(--window); }
+  .vlm-detail[hidden] { display: none !important; }
+  .vd-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; font-size: 13px; color: var(--text-muted); }
+  .vd-head b { font-size: 14px; color: var(--text); letter-spacing: 0.04em; }
+  .vd-meta { margin-left: auto; font-family: "IBM Plex Mono", Consolas, monospace; font-size: 12px; }
+  .vd-chips { display: flex; flex-wrap: wrap; gap: 6px; transition: opacity var(--t-mid) var(--ease); }
+  .vd-chips.busy { opacity: 0.45; }
+  .vd-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 3px 9px; font-size: 14px; color: var(--text);
+    border: 1px solid var(--line); background: var(--inset); max-width: 100%; }
+  .vd-chip i { font-style: normal; font-size: 12px; color: var(--text-muted); }
+  .vd-chip.wide { flex: 1 1 100%; }
+  .vd-empty { font-size: 13px; color: var(--text-muted); }
+  /* 관찰 카드: 한 줄로 (영상이 줄어들지 않게) */
+  .vlm-detail { display: flex; align-items: center; gap: 12px; padding: 6px 14px; }
+  .vd-head { margin: 0; flex: none; }
+  .vd-head .vd-meta { margin-left: 8px; }
+  .vd-chips { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+  .vd-chip { flex: none; white-space: nowrap; padding: 2px 8px; font-size: 13px; }
+  .vd-chip.wide { flex: 0 1 auto; min-width: 60px; overflow: hidden; text-overflow: ellipsis; }
 </style>
 </head>
 <body>
@@ -4655,9 +4676,9 @@
     const hiPlace = document.getElementById('hiPlace');
     const paLabel = document.querySelector('#robotCtrl .place-angle');
     if (hiPlace && paLabel) { hiPlace.textContent = ''; hiPlace.appendChild(paLabel); }   // 각도 입력은 설정 탭으로
-    const ex = [['빨간 공 줘', '빨간 공 줘'], ['파란 공 하나 받아', '파란 공 하나 받아'], ['초록 공', '초록 공']];
+    const ex = [['빨간 공 줘', '빨간 공 줘'], ['파란 공 줘', '파란 공 줘'], ['초록 공 줘', '초록 공 줘']];
     document.querySelectorAll('[data-ask]').forEach((b, i) => { if (ex[i]) { b.dataset.ask = ex[i][0]; b.textContent = ex[i][1]; b.classList.add('ball-btn'); b.dataset.part = String([1, 2, 3][i]); } });
-    document.getElementById('askInput').placeholder = '예: 빨간 공 줘 / 파란 공';
+    document.getElementById('askInput').placeholder = '예: 빨간 공 줘 / 파란 공 줘 / 초록 공 줘';
     vlmReply.textContent = '받을 공을 입력하면 해석 결과가 여기에 나옵니다';
     vlmCues.textContent = '문장을 입력하면 VLM이 이해해 빨간 공 · 파란 공 · 초록 공 중 하나를 고르고 로봇에 신호를 보냅니다';
     document.querySelector('.status-actions [onclick="uiHand()"]').textContent = '쥐어줬습니다';
@@ -4697,6 +4718,7 @@
       top: `<div class="tile-tag" title="끌어서 다른 칸과 자리 바꾸기"><span class="tile-grip" aria-hidden="true"></span><b class="tile-pos">CAM</b><span class="tile-name"></span></div>`,
       bar: `<div class="tile-bar"><select aria-label="카메라 고르기">${hand ? CAM_OPTS.replace('<option value="">카메라 없음</option>', '') : CAM_OPTS}</select>
         <button type="button" class="tile-btn tile-pick" title="연결된 카메라를 미리보기로 보고 고르기">미리보기</button>
+        <button type="button" class="tile-btn tile-look" title="VLM 이 이 카메라 화면을 보고 무엇인지·색·개수·위치·상태를 알려 줌 (약 2~3초)">관찰</button>
         <button type="button" class="tile-btn tile-power" title="이 카메라 끄기/켜기 (저장됨)">끄기</button>
         ${hand ? '' : '<button type="button" class="tile-btn tile-tray" title="이 칸을 쟁반 카메라로 (색 규칙으로 공 찾기)">쟁반</button>'}</div>`,
     };
@@ -4726,6 +4748,31 @@
     ctl.querySelector('.auto-btn').addEventListener('click', () => postBackendAction('view_auto', null, { on: !(hoSnap && hoSnap.auto_cams) }));
     const status = document.getElementById('camWinStatus');
     status.parentNode.insertBefore(ctl, status);
+    const card = document.createElement('div');
+    card.className = 'vlm-detail';
+    card.id = 'vlmDetail';
+    card.hidden = true;
+    camGrid.parentNode.insertBefore(card, camGrid.nextSibling);
+  }
+  const DETAIL_KO = [['object', '물체'], ['color', '색'], ['count', '개수'], ['position', '위치'], ['state', '상태'], ['scene', '주변'], ['note', '메모']];
+  let detailSig = '';
+  function renderDetail(snap) {
+    const card = document.getElementById('vlmDetail');
+    const d = snap.vlm_detail;
+    if (!card) return;
+    if (!d) { card.hidden = true; return; }
+    const sig = JSON.stringify(d);
+    if (sig === detailSig) return;
+    detailSig = sig;
+    card.hidden = false;
+    const f = d.fields || {};
+    const chips = DETAIL_KO.filter(([k]) => f[k] !== undefined && f[k] !== '')
+      .map(([k, ko]) => { const v = String(f[k]).replace(/</g, '&lt;').replace(/"/g, '&quot;'); return `<span class="vd-chip${k === 'scene' || k === 'note' ? ' wide' : ''}" title="${ko}: ${v}"><i>${ko}</i>${v}</span>`; }).join('');
+    card.innerHTML = `<div class="vd-head"><b>VLM 관찰</b><span>${d.source || ''}</span>`
+      + `<span class="vd-meta">${d.busy ? '관찰하는 중…' : `${d.time || ''}${d.seconds ? ` · ${d.seconds}s` : ''}`}</span></div>`
+      + `<div class="vd-chips${d.busy ? ' busy' : ''}">${chips || '<span class="vd-empty">관찰 결과가 없습니다</span>'}</div>`;
+    card.title = '판정에는 쓰지 않는 참고 정보입니다 (작은 모델이라 주변 설명은 틀릴 수 있음)';
+    card.classList.remove('swap-in'); void card.offsetWidth; card.classList.add('swap-in');
   }
   function makeTile(id) {
     const t = document.createElement('div');
@@ -4754,6 +4801,7 @@
       }
     });
     t.querySelector('.tile-pick').addEventListener('click', () => openCamPicker(hand ? 'hand' : `view${id}`));
+    t.querySelector('.tile-look').addEventListener('click', () => postBackendAction('describe', null, { slot: id }));
     t.querySelector('.tile-power').addEventListener('click', () => {
       if (hand) {
         const cam = (hoSnap && hoSnap.camera) || {};
@@ -4963,6 +5011,7 @@
     vlmEl.textContent = vs.online ? `VLM ${vs.model} 연결됨` : 'VLM 꺼짐 · 단어 규칙으로 해석';
     vlmEl.title = vs.online ? `${vs.url} — 문장 이해 + 손 위 공 확인` : (vs.note || 'Ollama 를 실행하면 자동으로 연결됩니다');
     renderViews(snap);
+    renderDetail(snap);
     const pa = document.getElementById('placeAngle');
     if (document.activeElement !== pa && snap.place_angle != null) pa.value = snap.place_angle;
     renderHandover();

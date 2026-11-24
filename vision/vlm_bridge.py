@@ -55,6 +55,19 @@ FOUND_PROMPT = ("사용자가 '{target}'을(를) 찾고 있어. 이 사진 안�
                 "다른 말은 절대 하지 마.")
 FOUND_SCHEMA = {"type": "object", "properties": {"found": {"type": "boolean"}}, "required": ["found"]}
 
+# 손 위 공 인식: 어떤 공인지(또는 없음)를 VLM 이 직접 고른다.
+# 실제 Gemma 3 4B 비교 (2026-11-24): 이 문장 5/5, "손 위에 공이 있나→색" 3/5, 영어 4/5 (빨간 공을 '없음'으로 놓침)
+BALL_PROMPT = "사진에서 가장 눈에 띄는 공의 색을 고른다. 빨간색·파란색·초록색 공이 보이지 않으면 없음."
+BALL_COLORS = {"빨간색": "red", "파란색": "blue", "초록색": "green"}
+
+# 여러 정보를 한 번에 관찰 (판정에는 쓰지 않고 화면 표시용, Gemma 3 4B 약 2~2.5초)
+DESCRIBE_PROMPT = ("사진은 로봇 손 부분을 찍은 것이다. 보이는 것을 짧게 관찰해 JSON 으로만 답한다. "
+                   "object: 손 위나 손가락 사이에 있는 물건이 무엇인지 (예: 빨간 고무공, 없음), "
+                   "color: 그 물건의 색, count: 공 개수(숫자), position: 위치 (손바닥 가운데 / 손가락 사이 / 손 밖 등), "
+                   "state: 상태 (손바닥 위에 놓임 / 손가락이 쥐고 있음 / 떨어지는 중 / 없음), "
+                   "scene: 손 주변에 보이는 것 한 줄, note: 특이사항 한 줄 (없으면 없음).")
+DESCRIBE_FIELDS = ("object", "color", "count", "position", "state", "scene", "note")
+
 CHECK_PROMPT = """사진은 로봇 손바닥 위를 찍은 것이다. 손 위에 색깔 공이 하나 있다.
 공은 다음 중 하나다.
 {options}
@@ -264,6 +277,53 @@ class VlmBridge:
             raw, found = f"오류: {exc.__class__.__name__}", None
         return {"found": found, "raw": raw.strip()[:80], "seconds": round(time.monotonic() - t0, 1),
                 "ok": found is not None}
+
+    def check_ball(self, img: np.ndarray) -> dict:
+        """손 위 사진 → {"label": red/blue/green/None, "empty": 공 없음 여부, "raw", "seconds", "ok"}"""
+        self.stats["check_calls"] += 1
+        schema = {"type": "object", "properties": {"ball": {"type": "string", "enum": list(BALL_COLORS) + ["없음"]}},
+                  "required": ["ball"]}
+        t0 = time.monotonic()
+        try:
+            h, w = img.shape[:2]
+            if max(h, w) > 1024:
+                s = 1024 / max(h, w)
+                img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            raw = self._chat(BALL_PROMPT, [base64.b64encode(buf.tobytes()).decode()],
+                             timeout=self.image_timeout, schema=schema)
+            got = str(parse_json(raw).get("ball", "")).strip()
+        except Exception as exc:
+            raw, got = f"오류: {exc.__class__.__name__}", ""
+        label = BALL_COLORS.get(got)
+        empty = got == "없음"
+        return {"label": label, "empty": empty, "raw": raw.strip()[:80],
+                "seconds": round(time.monotonic() - t0, 1), "ok": label is not None or empty}
+
+    def describe(self, img: np.ndarray) -> dict:
+        """사진 → {"fields": {object, color, count, position, state, scene, note}, "seconds", "ok"}"""
+        schema = {"type": "object",
+                  "properties": {k: ({"type": "integer"} if k == "count" else {"type": "string"}) for k in DESCRIBE_FIELDS},
+                  "required": list(DESCRIBE_FIELDS)}
+        t0 = time.monotonic()
+        try:
+            h, w = img.shape[:2]
+            if max(h, w) > 1024:
+                s = 1024 / max(h, w)
+                img = cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA)
+            ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+            d = parse_json(self._chat(DESCRIBE_PROMPT, [base64.b64encode(buf.tobytes()).decode()],
+                                      timeout=self.image_timeout, schema=schema))
+        except Exception:
+            d = {}
+        fields = {k: str(d.get(k, "")).strip()[:60] for k in DESCRIBE_FIELDS if str(d.get(k, "")).strip()}
+        return {"fields": fields, "seconds": round(time.monotonic() - t0, 1), "ok": bool(fields)}
+
+    def submit_describe(self, img: np.ndarray) -> Future:
+        return self._pool.submit(self.describe, img)
+
+    def submit_ball(self, img: np.ndarray) -> Future:
+        return self._pool.submit(self.check_ball, img)
 
     def submit_found(self, img: np.ndarray, target: str) -> Future:
         return self._pool.submit(self.check_found, img, target)
