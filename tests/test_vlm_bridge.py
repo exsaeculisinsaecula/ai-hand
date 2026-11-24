@@ -95,6 +95,38 @@ class OfflineTest(unittest.TestCase):
         self.assertIsNone(parse_found('모르겠음'))
 
 
+class CrossCheckTest(unittest.TestCase):
+    """VLM 판정 + 색 규칙 교차 확인: 다르면 VLM 이 한 번 더 (요청한 공이 있나?)"""
+    make = None
+
+    def setUp(self):
+        self.make = VerifyFlowTest.make.__get__(self)
+        self.place = VerifyFlowTest.place.__get__(self)
+
+    def test_agree_uses_one_call(self):
+        task, link, clock = self.make("red")
+        self.place(task, clock, label="red")
+        self.assertEqual((task.state, task.vlm.calls), ("GRIP", ["image"]))
+        self.assertEqual(task.snapshot()["decision"]["final"], "쥐기")
+
+    def test_disagree_triggers_second_look_and_vlm_wins(self):
+        task, link, clock = self.make("blue")                  # VLM: 파랑, 규칙: 빨강 → 두 번째 확인 '빨간 공?' 아니오
+        self.place(task, clock, label="red")
+        self.assertEqual(task.vlm.calls, ["image", "image"])
+        self.assertEqual(link.sent[-1], "NG")
+        d = task.snapshot()["decision"]
+        self.assertEqual((d["vlm"], d["second"], d["final"]), ("파란 공", "없음", "NG"))
+
+    def test_vlm_missed_ball_rescued_by_rule_and_second_look(self):
+        task, link, clock = self.make("red")
+        real = task.vlm.check_ball
+        task.vlm.check_ball = lambda img: {"label": None, "empty": True, "raw": "", "seconds": 1.0, "ok": True}
+        self.place(task, clock, label="red")                    # VLM 첫 판정 '없음', 규칙 빨강 → 두 번째 확인 '빨간 공?' 예
+        task.vlm.check_ball = real
+        self.assertEqual(task.state, "GRIP")
+        self.assertEqual(task.snapshot()["decision"]["second"], "있음")
+
+
 class GuardTest(unittest.TestCase):
     """실제 Gemma 3 4B 시험에서 틀렸던 두 경우 — VLM 에 묻기 전에 규칙으로 막음"""
 
@@ -137,6 +169,7 @@ class VerifyFlowTest(unittest.TestCase):
             if task.state != "RECEIVE":
                 break
         task.step(None)                            # VLM 결과 처리
+        task.step(None)                            # (규칙과 다르면) 두 번째 확인 결과 처리
 
     def test_vlm_found_true_sends_grip(self):
         task, link, clock = self.make("red")
@@ -236,7 +269,8 @@ class TrayTest(unittest.TestCase):
         items = [{"label": "blue", "conf": 0.8, "box": (900, 300, 100, 100)},
                  {"label": "red", "conf": 0.7, "box": (100, 300, 100, 100)},
                  {"label": "blue", "conf": 0.5, "box": (500, 300, 100, 100)}]
-        task.update_tray(items)
+        for _ in range(4):                                    # 같은 판단이 이어질 때 기록
+            task.update_tray([dict(d) for d in items])
         self.assertEqual(task.tray["pick"], 3)                 # 왼쪽부터 1 빨간 공, 2 파란 공(0.5), 3 파란 공(0.8)
         self.assertIn("쟁반 3번", task.message)
         self.assertTrue(any("[쟁반]" in l["text"] for l in task.logs))

@@ -22,9 +22,11 @@ import time
 import webbrowser
 
 import cv2
+import numpy as np
 
 from controller.handover import HandoverTask
-from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts, detect_change, find_balls
+from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts, detect_change, find_balls, \
+    hand_zone_from_motion
 
 ROOT = Path(__file__).resolve().parent
 
@@ -440,10 +442,8 @@ class ViewCam:
             h, w = vis.shape[:2]
             k = max(1.0, w / 640)
             th = max(2, int(2 * k))
-            if self.rt.tray_slot == self.slot:
+            if self.rt.tray_slot == self.slot and self.rt.DRAW_IN_VIDEO:
                 draw_tray_items(vis, self.rt.task.tray, k, th)
-                cv2.putText(vis, "TRAY", (int(12 * k), int(36 * k)), cv2.FONT_HERSHEY_SIMPLEX, 1.0 * k,
-                            (240, 240, 240), th + 1, cv2.LINE_AA)
             ok2, buf = cv2.imencode(".jpg", vis, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok2:
                 self.jpeg = buf.tobytes()
@@ -461,7 +461,8 @@ class ViewCam:
     def info(self) -> dict:
         return {"slot": self.slot, "src": self.src, "ok": self.jpeg is not None and not self.error, "off": self.off(),
                 "error": self.error, "fps": round(self.fps, 1),
-                "shared": self.src == self.rt.camera_index}
+                "shared": self.src == self.rt.camera_index,
+                "size": [self.frame.shape[1], self.frame.shape[0]] if self.frame is not None else None}
 
 
 class Runtime:
@@ -478,6 +479,8 @@ class Runtime:
         self.task.palm_crop = self._palm_crop                  # VLM 에 보여 줄 손 영역 사진
         self.task.on_grip_approved = lambda img: self.start_describe(img, "손 위 (쥐기 승인 직후)")
         self.vlm_detail: dict | None = None                    # VLM 관찰 (여러 정보) 마지막 결과
+        self._locating = False
+        self.locate_status: dict | None = None                 # [손 자동 찾기] 진행·결과
         self._describe_busy = False
         self.clf = PartClassifier()                 # YOLO 를 못 쓸 때의 대체 판별기
         self.yolo = None
@@ -784,6 +787,81 @@ class Runtime:
         vlm.submit_describe(img.copy()).add_done_callback(done)
         return {"ok": True, "reply": f"VLM이 {source} 화면을 관찰하는 중입니다"}
 
+    # ---- [손 자동 찾기]: 손을 쥐었다 펴서 움직인 자리 = 로봇 손 → VLM 이 확인 → 손 영역으로 ----
+    def locate_hand(self) -> dict:
+        if self._locating:
+            return {"ok": False, "reply": "이미 손을 찾는 중입니다"}
+        if self.task.state != "IDLE" or self.task.stopped or self.task._awaiting:
+            return {"ok": False, "reply": "대기 중일 때만 찾을 수 있습니다 (로봇이 움직입니다)"}
+        if not self.link.connected:
+            return {"ok": False, "reply": "로봇이 연결되지 않았습니다"}
+        if not self._camera_ok():
+            return {"ok": False, "reply": "손 카메라 영상이 없습니다"}
+        self._locating = True
+        self.locate_status = {"phase": "moving", "msg": "손을 쥐었다 펴서 위치를 찾는 중"}
+        threading.Thread(target=self._locate_hand_run, daemon=True).start()
+        return {"ok": True, "reply": "손을 한 번 쥐었다 펴서 위치를 찾습니다 — 손 주변을 비워 주십시오"}
+
+    def _move_and_wait(self, cmd: str, timeout: float = 6.0) -> bool:
+        with self.lock:
+            if not self.task._send(cmd):
+                return False
+        t0 = time.monotonic()
+        while self.task._awaiting and time.monotonic() - t0 < timeout:
+            time.sleep(0.05)
+        time.sleep(0.4)                                   # 흔들림이 멎을 때까지
+        return not self.task._awaiting
+
+    def _still_frame(self, n: int = 5):
+        frames = []
+        for _ in range(n):
+            if self.frame is not None:
+                frames.append(self.frame.copy())
+            time.sleep(0.06)
+        return np.median(np.stack(frames), axis=0).astype(np.uint8) if frames else None
+
+    def _locate_hand_run(self) -> None:
+        log = self.task._log
+        try:
+            ok = self._move_and_wait("OPEN")
+            f_open = self._still_frame()
+            ok = ok and self._move_and_wait("GRIP")
+            f_grip = self._still_frame()
+            ok = ok and self._move_and_wait("OPEN")
+            f_open2 = self._still_frame()
+            if not ok:
+                self.locate_status = {"phase": "fail", "msg": "로봇이 응답하지 않아 찾지 못했습니다"}
+                log("ERR", "[손 자동 찾기] 로봇 응답 없음")
+                return
+            found = hand_zone_from_motion(f_open, f_grip, f_open2)
+            if found is None:
+                self.locate_status = {"phase": "fail", "msg": "손가락 움직임이 화면에 보이지 않습니다 — 카메라가 손을 비추는지 확인하십시오"}
+                log("SYS", "[손 자동 찾기] 움직임을 찾지 못함 — 손 영역은 그대로")
+                return
+            zone, (bx, by, bw, bh) = found
+            vlm = self.task.vlm
+            verdict = ""
+            if vlm is not None and vlm.online:            # 찾은 자리가 정말 로봇 손인지 VLM 이 확인 (예/아니오)
+                self.locate_status = {"phase": "vlm", "msg": "VLM 이 로봇 손인지 확인하는 중", "zone": zone}
+                h, w = f_open.shape[:2]
+                gx, gy = bw * 0.35, bh * 0.35
+                crop = f_open[int(max(0, by - gy)):int(min(h, by + bh + gy)), int(max(0, bx - gx)):int(min(w, bx + bw + gx))]
+                v = vlm.check_found(crop, "로봇 손") if crop.size else {"found": None, "seconds": 0}
+                if v["found"] is False:
+                    self.locate_status = {"phase": "fail", "msg": "VLM: 찾은 자리가 로봇 손이 아닙니다 — 적용하지 않음", "zone": zone}
+                    log("SYS", f"[손 자동 찾기] 움직임 자리 {zone} — VLM 이 로봇 손이 아니라고 판단 ({v['seconds']}s), 적용 안 함")
+                    return
+                verdict = f" · VLM 확인 {v['seconds']}s" if v["found"] else " · VLM 응답 없음"
+            self.set_roi(*zone)
+            self.locate_status = {"phase": "done", "msg": f"로봇 손을 찾아 손 영역으로 정했습니다{verdict}", "zone": zone,
+                                  "t": time.monotonic()}
+            log("SYS", f"[손 자동 찾기] 손 영역 = ({', '.join(f'{float(z):.2f}' for z in zone)}){verdict}")
+        except Exception as exc:
+            self.locate_status = {"phase": "fail", "msg": f"찾기 오류: {exc.__class__.__name__}"}
+            log("ERR", f"[손 자동 찾기] 오류: {exc}")
+        finally:
+            self._locating = False
+
     def _palm_crop(self, margin: float = 0.12):
         """손 영역(+여유)을 잘라 VLM 에 보여 줄 사진"""
         f = self.frame
@@ -800,13 +878,19 @@ class Runtime:
         y0, y1 = sorted((max(0.0, min(1.0, float(y0))), max(0.0, min(1.0, float(y1)))))
         if x1 - x0 < 0.05 or y1 - y0 < 0.05:
             return False
-        self.palm_roi = (round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3))
+        self.palm_roi = (round(float(x0), 3), round(float(y0), 3), round(float(x1), 3), round(float(y1), 3))
+        if self.task.state in ("RECEIVE", "VERIFY"):
+            self.task.rebaseline = True                   # 손 영역을 옮겼으면 빈 손 기준도 다시
         self.ROI_FILE.parent.mkdir(parents=True, exist_ok=True)
         self.ROI_FILE.write_text(json.dumps(self.palm_roi), encoding="utf-8")
         return True
 
     # ---- drawing ----
+    DRAW_IN_VIDEO = False         # True: 예전처럼 영상 안에 상자를 그림 / False: 대시보드가 그림 (한글·같은 디자인)
+
     def _draw(self, frame):
+        if not self.DRAW_IN_VIDEO:
+            return frame
         vis = frame.copy()
         h, w = vis.shape[:2]
         k = max(1.0, w / 640)
@@ -992,9 +1076,15 @@ class Runtime:
             d = res.to_dict()
             d["motion"] = round(motion, 2)
             if self.yolo is None:
-                d["rule_label"] = rule.label            # VLM 이 답하지 못할 때만 쓰는 색 규칙 결과
+                d["rule_label"] = rule.label            # 색 규칙: VLM 교차 확인 · VLM 이 답하지 못할 때 대신
+                d["rule_conf"] = round(float(rule.confidence), 2)
             tray_items = self._tray_items(frame, dets)
+            px0, py0, px1, py1 = self.palm_roi
+            mx, my = (px1 - px0) * 0.15, (py1 - py0) * 0.15
+            near_palm = (max(0.0, px0 - mx), max(0.0, py0 - my), min(1.0, px1 + mx), min(1.0, py1 + my))
+            balls = find_balls(frame, max_balls=6) if self.yolo is None else                 [x for x in dets if x.get("label") in LABELS]
             with self.lock:
+                self.hand_balls = {"size": [frame.shape[1], frame.shape[0]], "balls": balls}
                 self.overlay = {"dets": dets, "best": d if res.label != "none" else None}
                 self.result = d
                 self.task.update_tray(tray_items)
@@ -1187,6 +1277,14 @@ class Runtime:
             snap["view_order"] = list(self.view_order)
             snap["auto_cams"] = self.auto_cams
             snap["vlm_detail"] = self.vlm_detail
+            ls = self.locate_status
+            snap["locate"] = ({k: v for k, v in ls.items() if k != "t"} | {"busy": self._locating,
+                              "fresh": ls.get("phase") != "done" or time.monotonic() - ls.get("t", 0) < 5}) if ls else None
+            hb = getattr(self, "hand_balls", None) or {"size": None, "balls": []}
+            snap["hand_overlay"] = {"size": hb["size"], "palm": list(self.palm_roi),
+                                    "balls": [{"label": b["label"], "conf": round(float(b["conf"]), 2), "box": list(b["box"])}
+                                              for b in hb["balls"]],
+                                    "tray_here": not (self.tray_slot and self.tray_slot in self.views)}
             snap["camera_chosen"] = "camera_index" in self.read_settings()   # 아직 한 번도 고르지 않았으면 선택 창을 띄움
             snap["camera_disabled"] = sorted(self.cam_disabled)
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
@@ -1211,6 +1309,11 @@ class Runtime:
 
     def action(self, p: dict) -> dict:
         a = p.get("action")
+        if a == "locate_hand":                            # [손 자동 찾기]
+            out = self.locate_hand()
+            st = self.state()
+            st["result"] = out
+            return st
         if a == "describe":                               # 칸의 [관찰] 버튼
             slot = str(p.get("slot", "hand"))
             order = self.view_order

@@ -2753,6 +2753,130 @@
   .vd-chips { flex: 1 1 auto; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
   .vd-chip { flex: none; white-space: nowrap; padding: 2px 8px; font-size: 13px; }
   .vd-chip.wide { flex: 0 1 auto; min-width: 60px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ===== 공 상자 (영상 위 · 대시보드 디자인과 같은 선 · 모서리 눈금 · 공 색) ===== */
+  .det-layer { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+  .cam-tile > .tile-view > .det-layer { top: var(--tile-head); }
+  .det-box {
+    position: absolute; box-sizing: border-box;
+    border: 1px solid color-mix(in srgb, var(--c) 70%, transparent);
+    background:
+      linear-gradient(var(--c), var(--c)) left top / 12px 2px no-repeat,
+      linear-gradient(var(--c), var(--c)) left top / 2px 12px no-repeat,
+      linear-gradient(var(--c), var(--c)) right top / 12px 2px no-repeat,
+      linear-gradient(var(--c), var(--c)) right top / 2px 12px no-repeat,
+      linear-gradient(var(--c), var(--c)) left bottom / 12px 2px no-repeat,
+      linear-gradient(var(--c), var(--c)) left bottom / 2px 12px no-repeat,
+      linear-gradient(var(--c), var(--c)) right bottom / 12px 2px no-repeat,
+      linear-gradient(var(--c), var(--c)) right bottom / 2px 12px no-repeat,
+      color-mix(in srgb, var(--c) 8%, transparent);
+    transition: left 140ms linear, top 140ms linear, width 140ms linear, height 140ms linear, border-color var(--t-mid) var(--ease);
+  }
+  .det-box.picked { border-width: 2px; border-color: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); }
+  .det-tag {
+    position: absolute; left: -1px; bottom: calc(100% + 5px); display: flex; flex-direction: column; gap: 1px;
+    padding: 4px 9px 4px 8px; min-width: 96px; white-space: nowrap;
+    background: rgba(255, 255, 255, 0.95); border: 1px solid var(--line); border-left: 4px solid var(--c);
+    color: var(--text); font-family: inherit; line-height: 1.25;
+  }
+  .det-tag b { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+  .det-tag span { font-size: 12px; color: var(--text-muted); }
+  .det-box.picked .det-tag { background: color-mix(in srgb, var(--c) 86%, #fff); border-color: var(--c); color: #fff; }
+  .det-box.picked .det-tag span { color: rgba(255, 255, 255, 0.88); }
+  .det-box.tag-below .det-tag { bottom: auto; top: calc(100% + 5px); }
+  .det-box.tag-left .det-tag { left: auto; right: -1px; }
+  .det-box.tray { background-color: transparent; }
+  /* 받기 단계에서만: 손바닥 자리 안내 (옅은 점선) */
+  .det-zone { position: absolute; border: 1px dashed color-mix(in srgb, var(--text) 45%, transparent);
+    background: color-mix(in srgb, var(--window) 10%, transparent); transition: opacity var(--t-mid) var(--ease); }
+  .det-zone span { position: absolute; left: 6px; bottom: 6px; font-size: 12px; padding: 2px 7px; color: var(--text-sec);
+    background: rgba(255, 255, 255, 0.9); border: 1px solid var(--line); white-space: nowrap; }
+  @media (max-width: 720px) { .det-tag b { font-size: 12px; } .det-tag span { font-size: 11px; } .det-tag { min-width: 0; } }
+
+  /* ===== HUD 말풍선: 모서리 눈금 + 선으로 이어진 미니 카드 (공을 따라감) ===== */
+  .det-box { border-color: color-mix(in srgb, var(--c) 28%, transparent);
+    background-color: color-mix(in srgb, var(--c) 5%, transparent) !important; overflow: visible; }
+  .det-box.picked { border: 1px solid color-mix(in srgb, var(--c) 55%, transparent); box-shadow: none; }
+  .det-lead { position: absolute; left: 100%; top: -20px; width: 34px; height: 20px; overflow: visible; }
+  .det-lead polyline { fill: none; stroke: var(--c); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
+  .det-lead circle { fill: var(--c); }
+  .det-card {
+    position: absolute; left: calc(100% + 34px); top: -18px; transform: translateY(-50%);
+    min-width: 128px; padding: 7px 12px 7px 11px; white-space: nowrap;
+    background: rgba(255, 255, 255, 0.86); backdrop-filter: blur(3px);
+    border: 1px solid color-mix(in srgb, var(--c) 55%, var(--line)); border-left: 3px solid var(--c);
+    color: var(--text); animation: card-in 260ms var(--ease) both;
+  }
+  .det-card::after { content: ''; position: absolute; right: -1px; top: -1px; width: 8px; height: 8px;
+    border-top: 1px solid var(--c); border-right: 1px solid var(--c); }
+  @keyframes card-in { from { opacity: 0; transform: translate(-6px, -50%); } to { opacity: 1; transform: translate(0, -50%); } }
+  .dc-main { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; }
+  .dc-color { font-size: 15px; font-weight: 600; color: color-mix(in srgb, var(--c) 72%, var(--text)); letter-spacing: 0.04em; }
+  .dc-kind { font-size: 13px; font-weight: 500; color: var(--text-sec); letter-spacing: 0.24em; }
+  .dc-meta { margin-top: 3px; padding-top: 3px; border-top: 1px solid var(--line-faint);
+    font-family: "IBM Plex Mono", Consolas, monospace; font-size: 11px; letter-spacing: 0.04em; color: var(--text-muted); }
+  .det-box.picked .det-card { background: color-mix(in srgb, var(--c) 14%, rgba(255, 255, 255, 0.92)); }
+  .det-box.picked .det-lead polyline { stroke-width: 2; }
+  .det-box.tag-left .det-lead { left: auto; right: 100%; transform: scaleX(-1); }
+  .det-box.tag-left .det-card { left: auto; right: calc(100% + 34px); border-left-width: 1px; border-right: 3px solid var(--c); }
+  .det-box.tag-left .det-card::after { right: auto; left: -1px; border-right: 0; border-left: 1px solid var(--c); }
+  .det-box.tag-below .det-lead { top: 100%; transform: scaleY(-1); }
+  .det-box.tag-below .det-card { top: calc(100% + 18px); }
+  .det-box.tag-below.tag-left .det-lead { transform: scale(-1, -1); }
+  @media (max-width: 720px) { .det-card { min-width: 0; padding: 4px 8px; } .dc-color { font-size: 13px; } .dc-kind { font-size: 11px; letter-spacing: 0.12em; } }
+
+  /* 공 궤적: 아주 얇게, 오래된 쪽일수록 옅게 */
+  .det-trails { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .det-trails line { stroke-width: 1.2; stroke-linecap: round; }
+  /* 손 자동 찾기로 찾은 자리 */
+  .det-zone.found { border: 1px solid var(--c-done); background: color-mix(in srgb, var(--c-done) 8%, transparent);
+    animation: zone-in 420ms var(--ease) both; }
+  .det-zone.found span { border-color: var(--c-done); color: var(--c-done); }
+  @keyframes zone-in { from { opacity: 0; transform: scale(1.06); } to { opacity: 1; transform: none; } }
+
+  /* 쥘 자리 상자: 공 상자와 같은 모양, 요청한 공 색 (요청 없을 땐 무채색) */
+  .det-box.zone { background-color: color-mix(in srgb, var(--c) 4%, transparent) !important; border-style: dashed; }
+  .det-box.zone .dc-color { color: var(--text); }
+  .det-box.zone.picked { border-style: solid; }
+  /* ===== 판정 방식 패널 (알람 바로 위) ===== */
+  .judge-panel { order: 98; background: var(--window); border: 1px solid var(--line); padding: 10px 16px 12px; position: relative; }
+  .jp-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+  .jp-head b { font-size: 15px; letter-spacing: 0.08em; }
+  .jp-mode { font-size: 13px; color: var(--text-sec); }
+  .judge-panel.vlm-off .jp-mode { color: var(--warning); }
+  .jp-steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+  .jp-steps li { display: flex; gap: 10px; padding: 8px 12px 8px 0; border-top: 2px solid var(--line-faint); position: relative;
+    transition: border-color var(--t-mid) var(--ease); }
+  .jp-steps li + li { padding-left: 12px; }
+  .jp-no { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center;
+    font-family: "IBM Plex Mono", Consolas, monospace; font-size: 12px; border: 1px solid var(--line); color: var(--text-muted);
+    transition: background-color var(--t-mid) var(--ease), color var(--t-mid) var(--ease); }
+  .jp-steps li b { font-size: 14px; color: var(--text); margin-right: 6px; }
+  .jp-who { font-style: normal; font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); color: var(--text-muted); }
+  .jp-steps li small { display: block; margin-top: 3px; font-size: 12px; line-height: 1.45; color: var(--text-muted); }
+  .jp-steps li.on { border-top-color: var(--c-part, var(--c-work)); }
+  .jp-steps li.on .jp-no { background: var(--c-part, var(--c-work)); border-color: var(--c-part, var(--c-work)); color: #fff; }
+  .jp-last { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 13px; color: var(--text-sec);
+    font-family: "IBM Plex Mono", Consolas, monospace; letter-spacing: 0.01em; }
+  @media (max-width: 900px) { .jp-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .jp-steps { grid-template-columns: minmax(0, 1fr); } .jp-steps li + li { padding-left: 0; } }
+  /* 순서: 상단바 · 본문(남는 높이) · 판정 방식 · 알람 */
+  @media (min-width: 1021px) { body.handover-mode .console { grid-template-rows: auto minmax(0, 1fr) auto auto; } }
+  /* 판정 방식: 기본은 한눈에 보이게 짧게, [자세히] 로 설명 펼침 */
+  .judge-panel { padding: 6px 16px 8px; }
+  .jp-head { margin-bottom: 4px; }
+  .jp-more { margin-left: auto; height: 26px; padding: 0 10px; font: inherit; font-size: 12px; border: 1px solid var(--line);
+    background: var(--window); color: var(--text-sec); cursor: pointer; }
+  .jp-more:hover { border-color: var(--text); color: var(--text); }
+  .jp-steps li { padding-top: 5px; padding-bottom: 4px; align-items: center; }
+  .jp-steps li small { display: none; }
+  .judge-panel.expanded .jp-steps li { align-items: flex-start; }
+  .judge-panel.expanded .jp-steps li small { display: block; }
+  .jp-steps li + li::before { content: ""; position: absolute; left: -6px; top: 50%; width: 8px; height: 8px;
+    border-top: 1px solid var(--line); border-right: 1px solid var(--line); transform: translateY(-50%) rotate(45deg); }
+  .jp-last { margin-top: 2px; padding-top: 4px; font-size: 12px; }
+  /* 좁은 화면 높이: 3D 화면이 줄어들어 아래 조작 줄이 보이게 */
+  body.handover-mode .col-left .mp-window > .canvas-wrap { min-height: 120px !important; }
 </style>
 </head>
 <body>
@@ -2970,6 +3094,7 @@
           <button type="button" class="mp-btn ball-btn" data-learn="blue" data-part="2">파란 공 <b id="lcBlue">0</b></button>
           <button type="button" class="mp-btn ball-btn" data-learn="green" data-part="3">초록 공 <b id="lcGreen">0</b></button>
           <button type="button" class="mp-btn" id="learnBg" title="공 없이 빈 화면일 때 누르면, 그 뒤로는 달라진 부분만 공으로 봅니다">빈 화면<small id="bgState" hidden>배경 없음</small></button>
+          <button type="button" class="mp-btn" id="roiAutoBtn" title="로봇 손을 한 번 쥐었다 펴서 움직인 자리를 찾고, VLM 이 로봇 손인지 확인한 뒤 손 영역으로 정합니다">손 자동 찾기</button>
           <button type="button" class="mp-btn" id="roiBtn" title="영상 위에서 로봇 손바닥 자리를 드래그해 지정 — 이 영역에 공이 닿아야 쥡니다">손 영역</button>
           <button type="button" class="mp-btn" id="camPickBtn" title="연결된 카메라를 찾아 미리보기로 고르기">카메라 선택</button>
           <button type="button" class="mp-btn" id="camPowerBtn" title="지금 쓰는 카메라 끄기/켜기 (저장됨)">카메라 끄기</button>
@@ -4033,6 +4158,7 @@
   document.querySelectorAll('[data-learn]').forEach((b) => b.addEventListener('click', () => postBackendAction('learn', null, { label: b.dataset.learn })));
   document.getElementById('learnConfirm').addEventListener('click', () => postBackendAction('confirm'));
   document.getElementById('learnBg').addEventListener('click', () => postBackendAction('bg'));
+  document.getElementById('roiAutoBtn').addEventListener('click', () => postBackendAction('locate_hand'));
 
   // ---- 카메라 선택: 서버가 0~5번을 열어 미리보기 → 골라서 바로 전환 ----
   const camPicker = document.getElementById('camPicker');
@@ -4734,6 +4860,7 @@
     const c = tileChrome('hand');
     view.appendChild(stage);
     view.insertAdjacentHTML('beforeend', c.top);
+    stage.insertAdjacentHTML('beforeend', '<div class="det-layer" id="handDet" aria-hidden="true"></div>');
     const live = stage.querySelector('#camLive');
     if (live) view.appendChild(live);                               // '작동 중' 도 영상 위가 아니라 머리줄에
     tile.appendChild(view);
@@ -4779,7 +4906,7 @@
     t.className = 'cam-tile';
     t.dataset.id = id;
     const c = tileChrome(id);
-    t.innerHTML = `<div class="tile-view"><img alt="카메라 영상">${c.top}
+    t.innerHTML = `<div class="tile-view"><img alt="카메라 영상"><div class="det-layer" aria-hidden="true"></div>${c.top}
         <div class="cam-live" hidden><i></i><span class="tile-live">작동 중</span></div>
         <div class="cam-state is-empty"><span class="cam-state-mark" aria-hidden="true"></span><b class="tile-title">카메라를 고르십시오</b>
           <span class="tile-desc">아래 목록이나 [미리보기]에서 고릅니다</span></div></div>${c.bar}`;
@@ -4932,6 +5059,226 @@
     }
   }
 
+  // ===== 공 상자: 영상 위에 대시보드가 직접 그림 (공 주변만 · 한글 · 같은 디자인) =====
+  const BALL_KO = { red: '빨간 공', blue: '파란 공', green: '초록 공' };
+  const COLOR_KO = { red: '빨간색', blue: '파란색', green: '초록색' };
+  function fitRect(layer, size) {
+    const cw = layer.clientWidth, ch = layer.clientHeight;
+    if (!size || !cw || !ch) return null;
+    const k = Math.min(cw / size[0], ch / size[1]);
+    return { k, ox: (cw - size[0] * k) / 2, oy: (ch - size[1] * k) / 2, cw, ch };
+  }
+  function drawBoxes(layer, size, items) {
+    const fr = fitRect(layer, size);
+    const nodes = [...layer.querySelectorAll('.det-box')];
+    items = fr ? items : [];
+    items.forEach((it, i) => {
+      let el = nodes[i];
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'det-box';
+        el.innerHTML = '<svg class="det-lead" viewBox="0 0 34 20" preserveAspectRatio="none"><polyline points="0,20 14,2 34,2"></polyline><circle cx="0" cy="20" r="2.4"></circle></svg>'
+          + '<div class="det-card"><div class="dc-main"><b class="dc-color"></b><b class="dc-kind"></b></div><div class="dc-meta"></div></div>';
+        layer.appendChild(el);
+      }
+      const [x, y, w, h] = it.box;
+      const L = fr.ox + x * fr.k, T = fr.oy + y * fr.k, W = Math.max(8, w * fr.k), H = Math.max(8, h * fr.k);
+      el.style.cssText = `left:${L.toFixed(1)}px;top:${T.toFixed(1)}px;width:${W.toFixed(1)}px;height:${H.toFixed(1)}px;--c:var(--c-ball-${it.label}, var(--text-sec))`;
+      el.className = `det-box${it.tray ? ' tray' : ''}${it.zone ? ' zone' : ''}${it.picked ? ' picked' : ''}${T < 64 ? ' tag-below' : ''}${L + W + 210 > fr.cw ? ' tag-left' : ''}`;
+      el.querySelector('.dc-color').textContent = it.color;
+      el.querySelector('.dc-kind').textContent = it.kind;
+      el.querySelector('.dc-meta').textContent = it.meta || '';
+      el.querySelector('.dc-meta').hidden = !it.meta;
+    });
+    nodes.slice(items.length).forEach((n) => n.remove());
+    // 말풍선이 겹치면 뒤의 것을 아래로 밀어 냄 (선은 그대로 상자에 이어짐)
+    const placed = [];
+    layer.querySelectorAll('.det-box .det-card').forEach((card) => {
+      card.style.marginTop = '0px';
+      let r = card.getBoundingClientRect();
+      let shift = 0;
+      for (let k = 0; k < 4; k++) {
+        const hit = placed.find((q) => r.left < q.right && r.right > q.left && r.top + shift < q.bottom && r.bottom + shift > q.top);
+        if (!hit) break;
+        shift = hit.bottom - r.top + 4;
+      }
+      card.style.marginTop = shift ? shift.toFixed(0) + 'px' : '0px';
+      placed.push({ left: r.left, right: r.right, top: r.top + shift, bottom: r.bottom + shift });
+    });
+    return fr;
+  }
+  function drawZone(layer, fr, size, roi, text) {
+    let z = layer.querySelector('.det-zone');
+    if (!roi || !fr) { if (z) z.remove(); return; }
+    if (!z) { z = document.createElement('div'); z.className = 'det-zone'; z.innerHTML = '<span></span>'; layer.prepend(z); }
+    const [x0, y0, x1, y1] = roi;
+    z.style.cssText = `left:${(fr.ox + x0 * size[0] * fr.k).toFixed(1)}px;top:${(fr.oy + y0 * size[1] * fr.k).toFixed(1)}px;`
+      + `width:${((x1 - x0) * size[0] * fr.k).toFixed(1)}px;height:${((y1 - y0) * size[1] * fr.k).toFixed(1)}px`;
+    z.querySelector('span').textContent = text;
+  }
+  function trayItems(snap) {
+    const tray = snap.tray || { items: [] };
+    return (tray.items || []).map((d) => ({
+      box: d.box, label: d.label, tray: true, picked: tray.pick === d.n,
+      color: COLOR_KO[d.label] || d.label, kind: `공 · ${d.n}번`,
+      meta: tray.pick === d.n ? '요청한 공 — 집어 주십시오' : `쟁반 · 색 ${Math.round((d.conf || 0) * 100)}%`,
+    }));
+  }
+  // 공 궤적: 같은 색 공의 최근 위치를 짧게 (약 1.2초), 오래된 점일수록 옅게
+  const trails = {};
+  function updateTrails(balls, now) {
+    for (const b of balls) {
+      const [x, y, w, h] = b.box;
+      const pt = { x: x + w / 2, y: y + h / 2, t: now };
+      const arr = trails[b.label] || (trails[b.label] = []);
+      const last = arr[arr.length - 1];
+      if (last && Math.hypot(pt.x - last.x, pt.y - last.y) > Math.max(w, h) * 3) arr.length = 0;   // 다른 공으로 튐 → 새로
+      if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) > 2) arr.push(pt);
+    }
+    for (const k of Object.keys(trails)) {
+      trails[k] = trails[k].filter((p) => now - p.t < 1200).slice(-14);
+      if (!balls.some((b) => b.label === k) && trails[k].length && now - trails[k][trails[k].length - 1].t > 400) trails[k] = [];
+    }
+  }
+  function drawTrails(layer, fr) {
+    let svg = layer.querySelector('svg.det-trails');
+    if (!svg) {
+      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'det-trails');
+      layer.prepend(svg);
+    }
+    if (!fr) { svg.innerHTML = ''; return; }
+    let html = '';
+    for (const [label, pts] of Object.entries(trails)) {
+      for (let i = 1; i < pts.length; i++) {
+        const a = pts[i - 1], b = pts[i];
+        const op = (0.12 + 0.68 * (i / (pts.length - 1 || 1))).toFixed(2);
+        html += `<line x1="${(fr.ox + a.x * fr.k).toFixed(1)}" y1="${(fr.oy + a.y * fr.k).toFixed(1)}" x2="${(fr.ox + b.x * fr.k).toFixed(1)}" y2="${(fr.oy + b.y * fr.k).toFixed(1)}" style="stroke:var(--c-ball-${label})" opacity="${op}"/>`;
+      }
+      const p = pts[pts.length - 1];
+      if (p && pts.length > 1) html += `<circle cx="${(fr.ox + p.x * fr.k).toFixed(1)}" cy="${(fr.oy + p.y * fr.k).toFixed(1)}" r="1.8" style="fill:var(--c-ball-${label})"/>`;
+    }
+    svg.innerHTML = html;
+  }
+  function iou(a, b) {
+    const x0 = Math.max(a[0], b[0]), y0 = Math.max(a[1], b[1]);
+    const x1 = Math.min(a[0] + a[2], b[0] + b[2]), y1 = Math.min(a[1] + a[3], b[1] + b[3]);
+    const i = Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
+    return i / (a[2] * a[3] + b[2] * b[3] - i || 1);
+  }
+
+  function renderOverlay(snap) {
+    const ho = snap.hand_overlay || {};
+    const layer = document.getElementById('handDet');
+    if (layer) {
+      const vOn = snap.vlm && snap.vlm.online;
+      const vl = snap.vlm_last;
+      const det = snap.vlm_detail && !snap.vlm_detail.busy ? (snap.vlm_detail.fields || {}) : {};
+      const vlmNow = vOn && vl && vl.kind === 'verify' && ['VERIFY', 'GRIP', 'PLACE'].includes(snap.state);
+      const near = (b) => {                                       // 손 근처가 아니면 확실한 것만 (옷·물건 오탐 줄이기)
+        if (!ho.size || !ho.palm) return true;
+        const cx = (b.box[0] + b.box[2] / 2) / ho.size[0], cy = (b.box[1] + b.box[3] / 2) / ho.size[1];
+        const [x0, y0, x1, y1] = ho.palm, mx = (x1 - x0) * 0.6, my = (y1 - y0) * 0.6;
+        return cx > x0 - mx && cx < x1 + mx && cy > y0 - my && cy < y1 + my;
+      };
+      const items = (ho.balls || []).filter((b) => near(b) || b.conf >= 0.72).map((b) => {
+        const label = vlmNow && vl.label ? vl.label : b.label;
+        let meta = `${vOn ? '색 추정' : '색 규칙'} ${Math.round(b.conf * 100)}%`;
+        if (snap.vlm_state === 'checking') meta = 'VLM 확인 중…';
+        else if (vlmNow) meta = `VLM 확인 · ${vl.seconds}s`;
+        if (det.state && det.state !== '없음' && ['GRIP', 'PLACE'].includes(snap.state)) meta += ` · ${det.state}`;
+        const obj = det.object && det.object !== '없음' && ['GRIP', 'PLACE'].includes(snap.state)
+          ? det.object.replace(/^(빨간|파란|초록)(색)?\s*/, '') : '';
+        const isTarget = snap.target && label === snap.target;
+        return { box: b.box, label, color: COLOR_KO[label] || label, kind: obj || '공', meta, picked: Boolean(isTarget) };
+      });
+      const tray = ho.tray_here ? trayItems(snap) : [];
+      const mine = items.filter((it) => !tray.some((t) => iou(t.box, it.box) > 0.3));      // 쟁반 공은 번호 달린 상자로 한 번만
+      const zoneMeta = { IDLE: '대기 — 공을 요청하십시오', REQUEST: '손 펴는 중', RECEIVE: `여기에 ${snap.target_ko || '공'}을 올려 주십시오`,
+        VERIFY: snap.vlm_step === 'second' ? 'VLM 두 번째 확인 중' : (snap.vlm_state === 'checking' ? 'VLM 판정 중' : '다른 공 — 치워 주십시오'),
+        GRIP: '쥐는 중', PLACE: '내려놓는 중', HOME: 'VLM 손 빔 확인' }[snap.state] || '';
+      const zone = ho.size && ho.palm ? [{
+        box: [ho.palm[0] * ho.size[0], ho.palm[1] * ho.size[1], (ho.palm[2] - ho.palm[0]) * ho.size[0], (ho.palm[3] - ho.palm[1]) * ho.size[1]],
+        label: snap.target || 'zone', zone: true, picked: snap.state === 'RECEIVE',
+        color: '손', kind: '쥘 자리', meta: zoneMeta,
+      }] : [];
+      const all = zone.concat(mine, tray);
+      const fr = drawBoxes(layer, ho.size, all);
+      updateTrails(ho.balls || [], performance.now());
+      drawTrails(layer, fr);
+      const loc = snap.locate;
+      if (loc && loc.zone && (loc.busy || loc.fresh)) {
+        drawZone(layer, fr, ho.size, loc.zone, loc.msg || '');
+        layer.querySelector('.det-zone').classList.toggle('found', loc.phase === 'done');
+      } else {
+        drawZone(layer, fr, ho.size, null, '');               // 쥘 자리는 위의 HUD 상자로 표시
+      }
+      const ab = document.getElementById('roiAutoBtn');
+      if (ab) {
+        ab.disabled = Boolean(loc && loc.busy) || snap.state !== 'IDLE';
+        ab.textContent = loc && loc.busy ? (loc.phase === 'vlm' ? 'VLM 확인 중…' : '손 찾는 중…') : '손 자동 찾기';
+      }
+      if (loc && !loc.busy && loc.fresh && loc.msg && loc.msg !== renderOverlay.lastLocateMsg) {
+        renderOverlay.lastLocateMsg = loc.msg;
+        showVlm(loc.msg, '손 자동 찾기', loc.phase === 'done' ? 'ok' : 'warn');
+      }
+    }
+    // 쟁반 칸
+    camGrid.querySelectorAll('.cam-tile:not(.hand-tile)').forEach((t) => {
+      const lay = t.querySelector('.det-layer');
+      if (!lay) return;
+      const v = (snap.views || []).find((x) => String(x.slot) === t.dataset.id);
+      const isTray = v && snap.tray_slot === v.slot;
+      drawBoxes(lay, v && v.size, isTray && v.ok ? trayItems(snap) : []);
+    });
+  }
+
+  // ===== 판정 방식 (알람 바로 위): VLM 이 최종 판정 · 규칙은 교차 확인 =====
+  const JUDGE_STEPS = [
+    ['detect', '놓임 감지', '손 영역이 빈 손 사진과 달라지고 1초 멈추면 → VLM 에게 물음', '규칙'],
+    ['vlm', 'VLM 판정', 'Gemma 가 손 위 사진을 보고 빨강 · 파랑 · 초록 · 없음 중 하나를 고름', 'VLM'],
+    ['rule', '규칙 교차 확인', '색 규칙(HSV)과 비교 · 다르면 VLM 이 "요청한 공이 있나?" 를 한 번 더 확인', '규칙 → VLM'],
+    ['act', '로봇 신호', '요청한 공이면 GRIP · 다른 공이면 NG · 없으면 기다림 · 내려놓은 뒤 손 빔도 VLM 이 확인', 'VLM'],
+  ];
+  function buildJudgePanel() {
+    if (document.getElementById('judgePanel')) return;
+    const el = document.createElement('section');
+    el.className = 'judge-panel';
+    el.id = 'judgePanel';
+    el.innerHTML = `<div class="jp-head"><b>판정 방식</b><span class="jp-mode" id="jpMode"></span><button type="button" class="jp-more" id="jpMore">자세히</button></div>
+      <ol class="jp-steps">${JUDGE_STEPS.map(([k, t, d, who], i) => `<li data-step="${k}"><span class="jp-no">${i + 1}</span>`
+        + `<div title="${d}"><b>${t}</b><i class="jp-who">${who}</i><small>${d}</small></div></li>`).join('')}</ol>
+      <div class="jp-last" id="jpLast">최근 판정이 여기에 표시됩니다</div>`;
+    document.querySelector('.console').appendChild(el);
+    try { el.classList.toggle('expanded', localStorage.getItem('aihand.judgeExpanded') === '1'); } catch (_) {}
+    const more = el.querySelector('#jpMore');
+    const sync = () => { more.textContent = el.classList.contains('expanded') ? '간단히' : '자세히'; };
+    sync();
+    more.addEventListener('click', () => {
+      el.classList.toggle('expanded');
+      sync();
+      try { localStorage.setItem('aihand.judgeExpanded', el.classList.contains('expanded') ? '1' : '0'); } catch (_) {}
+    });
+  }
+  function renderJudge(snap) {
+    buildJudgePanel();
+    const vOn = snap.vlm && snap.vlm.online;
+    document.getElementById('jpMode').textContent = vOn
+      ? `모든 판정은 VLM(${snap.vlm.model}) 이 내리고, 규칙은 놓임 감지와 교차 확인만 합니다`
+      : 'VLM 꺼짐 — 지금은 색 규칙만으로 판정합니다 (Ollama 를 켜면 자동으로 VLM 판정)';
+    document.getElementById('judgePanel').classList.toggle('vlm-off', !vOn);
+    const step = snap.vlm_step === 'second' ? 'rule'
+      : (snap.vlm_step ? 'vlm' : snap.state === 'RECEIVE' ? 'detect' : ['GRIP', 'PLACE', 'HOME'].includes(snap.state) ? 'act' : '');
+    document.querySelectorAll('.jp-steps li').forEach((li) => li.classList.toggle('on', li.dataset.step === step));
+    const d = snap.decision;
+    const last = document.getElementById('jpLast');
+    const text = d
+      ? `${d.time} · 요청 ${d.target || '-'} · VLM ${d.vlm} · 규칙 ${d.rule}${d.rule_conf != null ? ` ${Math.round(d.rule_conf * 100)}%` : ''}`
+        + ` · ${d.second ? `달라서 두 번째 확인 → ${d.second}` : (d.rule === '-' ? '규칙 자신 없음 → VLM 판정' : '일치')} → ${d.final}`
+      : '최근 판정이 여기에 표시됩니다';
+    if (last.textContent !== text) { last.textContent = text; last.classList.remove('swap-in'); void last.offsetWidth; last.classList.add('swap-in'); }
+  }
+
   function applyHandover(snap) {
     if (!handoverMode) enterHandoverMode();
     hoSnap = snap;
@@ -5012,6 +5359,8 @@
     vlmEl.title = vs.online ? `${vs.url} — 문장 이해 + 손 위 공 확인` : (vs.note || 'Ollama 를 실행하면 자동으로 연결됩니다');
     renderViews(snap);
     renderDetail(snap);
+    renderOverlay(snap);
+    renderJudge(snap);
     const pa = document.getElementById('placeAngle');
     if (document.activeElement !== pa && snap.place_angle != null) pa.value = snap.place_angle;
     renderHandover();

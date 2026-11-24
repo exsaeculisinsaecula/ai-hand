@@ -164,6 +164,34 @@ def find_balls(frame: np.ndarray, roi=None, exclude=None, min_area: float = 0.00
     return out
 
 
+def hand_zone_from_motion(f_open: np.ndarray, f_grip: np.ndarray, f_open2: np.ndarray, thr: int = 30):
+    """로봇 손을 폈을 때·쥐었을 때 사진의 차이 = 손가락이 움직인 자리 → 그 가운데를 '공을 올려 놓을 자리'로.
+    다시 폈을 때 사진과도 비교해 그 사이 화면이 바뀐(사람이 지나간) 곳은 뺀다.
+    → ((x0, y0, x1, y1) 정규화, (bx, by, bw, bh) 움직인 범위 픽셀) 또는 None"""
+    if f_open is None or f_grip is None or f_open2 is None or f_open.shape != f_grip.shape or f_open.shape != f_open2.shape:
+        return None
+    a, b, c = (cv2.GaussianBlur(x, (5, 5), 0) for x in (f_open, f_grip, f_open2))
+    moved = cv2.absdiff(a, b).max(axis=2) > thr
+    still = cv2.absdiff(a, c).max(axis=2) <= thr
+    mask = (moved & still).astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((21, 21), np.uint8))
+    n, lab, stats, cent = cv2.connectedComponentsWithStats(mask)
+    h, w = mask.shape
+    if n <= 1:
+        return None
+    i = max(range(1, n), key=lambda k: stats[k, cv2.CC_STAT_AREA])
+    bx, by, bw, bh, area = stats[i]
+    if area < 0.0015 * w * h:
+        return None
+    ys, xs = np.nonzero(lab == i)
+    cx, cy = float(xs.mean()), float(ys.mean())           # 손가락이 모이는 쪽 = 움직임의 무게중심
+    zw, zh = max(bw * 0.7, w * 0.08), max(bh * 0.7, h * 0.08)
+    x0, y0 = max(0.0, (cx - zw / 2) / w), max(0.0, (cy - zh / 2) / h)
+    x1, y1 = min(1.0, (cx + zw / 2) / w), min(1.0, (cy + zh / 2) / h)
+    return (round(x0, 3), round(y0, 3), round(x1, 3), round(y1, 3)), (int(bx), int(by), int(bw), int(bh))
+
+
 def detect_change(frame: np.ndarray, roi, background: np.ndarray, min_frac: float = 0.025) -> PartResult:
     """색과 상관없이 '빈 손 배경과 달라진 덩어리'가 있는지만 본다 (VLM 이 판정하기 전 단계).
     → PartResult("object", 비율 기반 점수, box=원본 좌표) 또는 PartResult("none")"""

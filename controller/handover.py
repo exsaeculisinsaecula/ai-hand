@@ -17,7 +17,17 @@ import math
 import time
 from typing import Callable
 
+from concurrent.futures import Future
+
 from vision.parts import LABEL_KO, LABELS, parse_request
+
+SUPPORTED_SET = set(LABELS)
+
+
+def _done_future(value):
+    f = Future()
+    f.set_result(value)
+    return f
 
 # 펌웨어(microbit/handover.py v5, 팀 보정값)와 같은 동작 시간 (초, +80ms 여유)
 PAN_S = 1.58     # 손목 회전 1500ms
@@ -78,7 +88,8 @@ class HandoverTask:
         self._check_seen = 0                    # 내려놓기 후 확인: 공이 보인 프레임 수
         self._check_total = 0
         self._cycle_t0: float | None = None
-        self._vlm_job = None                    # 교차 확인 중인 작업 (Future, 확인할 YOLO 결과)
+        self._vlm_job = None                    # VLM 작업 (Future, 화면 결과, 종류)
+        self._first_look = None                 # 규칙과 달라 두 번째 확인 중일 때 첫 VLM 판정
         self._vlm_hold = False                  # VLM 과 YOLO 가 달라 작업자 확인을 기다리는 중
         self.vlm_blocked = 0                    # VLM 이 found=false 로 막은 횟수
         self.last_vlm: dict | None = None       # 마지막 VLM 손 위 확인 결과
@@ -87,6 +98,8 @@ class HandoverTask:
         self.rebaseline = False                 # True 면 Runtime 이 지금 화면을 '빈 손' 배경으로 다시 찍음
         self._vlm_retry_at = 0.0                # VLM 이 '공 없음' 이라고 한 뒤 다시 묻기까지
         self._empty_vlm_started = False
+        self.last_decision: dict | None = None  # 최근 판정: VLM · 규칙 · 두 번째 확인 · 결과 (화면 설명용)
+        self.rule_min_conf = 0.6                # 이 점수 이상일 때만 규칙을 교차 확인에 씀
         self.tray: dict = {"items": [], "pick": None}   # 쟁반 위 YOLO 탐지 (번호는 왼쪽부터)
         self._tray_logged = None
         # 가리키기: 쟁반 왼쪽 끝/오른쪽 끝을 향하는 손목 각도 (None 이면 끔)
@@ -430,7 +443,10 @@ class HandoverTask:
             self._tray_logged = None
             return
         key = (self.target, pick, len(items))
-        if key != self._tray_logged:                    # 판단이 바뀔 때만 기록 (대시보드 로그)
+        if key != getattr(self, "_tray_pending", None):   # 같은 판단이 몇 번 이어질 때만 (매 화면 깜빡임은 기록 안 함)
+            self._tray_pending, self._tray_pending_n = key, 0
+        self._tray_pending_n += 1
+        if key != self._tray_logged and self._tray_pending_n >= 4:
             self._tray_logged = key
             seen = ", ".join(f"{d['n']}번 {LABEL_KO.get(d['label'], d['label'])} {d['conf']:.2f}" for d in items) or "없음"
             res = f"{LABEL_KO[self.target]}은 {pick}번" if pick else f"{LABEL_KO[self.target]} 없음"
@@ -456,6 +472,34 @@ class HandoverTask:
         self._enter("VERIFY", "VLM이 손 위의 공을 확인하는 중", "accent")
         return True
 
+    def _note_decision(self, v: dict, rule, rule_conf: float, second) -> None:
+        saw = LABEL_KO[v["label"]] if v.get("label") else ("없음" if v.get("empty") else "모름")
+        final = ("쥐기" if v.get("label") == self.target else "NG" if v.get("label") else "대기") if v.get("ok") else "규칙"
+        self.last_decision = {"vlm": saw, "rule": LABEL_KO.get(rule, "-") if rule else "-",
+                              "rule_conf": round(rule_conf, 2) if rule else None,
+                              "second": second, "final": final, "seconds": v.get("seconds"),
+                              "target": LABEL_KO.get(self.target or "", ""), "time": time.strftime("%H:%M:%S")}
+
+    def _decide_after_second(self, res: dict, first: dict, v2: dict) -> None:
+        """두 번째 확인(요청한 공이 있나?)으로 최종 결정. 최종 판단은 언제나 VLM."""
+        v1, rule = first.get("v", {}), first.get("rule")
+        name = LABEL_KO.get(self.target or "", "공")
+        found = v2.get("found")
+        if found is True:                                # 요청한 공이 맞다 → 쥐기
+            final = {"label": self.target, "empty": False, "ok": True, "seconds": v1.get("seconds", 0), "raw": "교차 확인: 있음"}
+            why = "두 번째 확인: 요청한 공 있음"
+        elif found is False:                             # 요청한 공이 아니다
+            other = v1.get("label") if v1.get("label") and v1.get("label") != self.target else \
+                (rule if rule and rule != self.target else None)
+            final = {"label": other, "empty": other is None, "ok": True, "seconds": v1.get("seconds", 0), "raw": "교차 확인: 없음"}
+            why = "두 번째 확인: 요청한 공 없음"
+        else:                                            # 두 번째 확인 실패 → 첫 VLM 판정대로
+            final, why = v1, "두 번째 확인 응답 없음 — 첫 판정대로"
+        self._note_decision(final, rule, first.get("rule_conf", 0.0), "있음" if found else "없음" if found is False else "-")
+        self._log("SYS", f"[교차 확인] {why} ({v2.get('seconds', 0)}s)")
+        self._vlm_job = (_done_future(final), res, "verify-final")
+        self._vlm_result()
+
     def _empty_check_vlm(self, res: dict | None, now: float) -> None:
         """내려놓은 뒤: 손이 정면으로 돌아오면(1.5초) 손 위 사진을 VLM 에 한 번 보여 줘 비었는지 확인"""
         if res is not None:                              # VLM 이 답하지 못할 때를 대비해 화면 변화도 셈
@@ -480,6 +524,8 @@ class HandoverTask:
         if not fut.done():
             return
         self._vlm_job = None
+        if kind == "verify-final":                       # 교차 확인을 거친 최종 판정 → 아래 일반 처리로
+            kind = "final"
         try:
             v = fut.result()
         except Exception as exc:
@@ -501,6 +547,28 @@ class HandoverTask:
                 self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 화면 변화로 판단")
                 self._empty_check(None, self.clock() + self.empty_check_s)
             return
+        if kind == "second":                             # 규칙과 달라서 한 번 더 본 결과 (예/아니오)
+            first = self._first_look or {}
+            self._first_look = None
+            return self._decide_after_second(res, first, v)
+        if kind == "final":
+            rule, rule_conf = None, 0.0
+        else:
+            rule, rule_conf = res.get("rule_label"), float(res.get("rule_conf") or 0.0)
+        if rule is None and res.get("label") in SUPPORTED_SET:
+            rule, rule_conf = res["label"], float(res.get("confidence") or 0.0)
+        rule_ok = kind != "final" and rule in SUPPORTED_SET and rule_conf >= self.rule_min_conf
+        agree = (v.get("label") == rule) if rule_ok else True        # 규칙이 자신 없으면 VLM 만
+        if v.get("ok") and not agree and self.target:
+            img = self._palm_image(res)
+            if img is not None:                          # VLM 과 규칙이 다름 → VLM 이 요청한 공이 있는지 한 번 더 (예/아니오)
+                self._first_look = {"v": v, "rule": rule, "rule_conf": rule_conf}
+                self._vlm_job = (self.vlm.submit_found(img, self.target), res, "second")
+                self._log("SYS", f"[교차 확인] VLM {saw} · 규칙 {LABEL_KO[rule]} {rule_conf:.2f} — 서로 달라 VLM 이 한 번 더 확인")
+                self.message = "VLM 과 규칙의 판단이 달라 VLM 이 한 번 더 확인하는 중"
+                return
+        if kind != "final":
+            self._note_decision(v, rule if rule_ok else None, rule_conf, None)
         if v.get("label") == self.target:
             st["check_agree"] += 1
             self._log("SYS", f"[VLM 확인] 손 위: {saw} ({v['seconds']}s) — 요청과 같음 → 로봇에 GRIP 전송")
@@ -524,6 +592,7 @@ class HandoverTask:
             self._enter("RECEIVE", f"VLM: 손 위에 공이 보이지 않습니다 — {name}을 손바닥에 올려 주십시오", "warn")
             self._reset_detection()
             self._vlm_retry_at = self.clock() + 2.5
+            self.rebaseline = True                       # 지금 화면을 새 '빈 손' 기준으로 → 바뀐 배경 때문에 계속 묻지 않음
             return
         st["check_fail"] += 1                           # VLM 응답 없음 → 색 규칙으로 대신
         self._log("ERR", f"[VLM 확인] 응답 없음 ({v['raw']}) — 색 규칙으로 판단")
@@ -706,6 +775,8 @@ class HandoverTask:
             "rearm_wait": self._rearm_wait,
             "vlm_state": "checking" if self._vlm_job is not None else ("hold" if self._vlm_hold else ""),
             "vlm_last": self.last_vlm,
+            "decision": self.last_decision,
+            "vlm_step": (self._vlm_job[2] if self._vlm_job is not None else ""),
             "point": {"phase": self._point_phase, "angle": self._point_angle} if self.point_cfg else None,
             "tray": {"items": [{k: v for k, v in d.items()} for d in self.tray["items"]], "pick": self.tray["pick"]},
             "manual": self.manual_options(),

@@ -423,3 +423,34 @@ class ManualBusyTests(unittest.TestCase):
         out = task.manual("req_red")
         self.assertFalse(out["ok"])
         self.assertEqual(task.state, "IDLE")
+
+
+class HandZoneFromMotionTests(unittest.TestCase):
+    """[손 자동 찾기]: 폈을 때와 쥐었을 때 사진 차이로 손 자리 찾기"""
+
+    def frames(self, person_walks=False):
+        from vision.parts import hand_zone_from_motion  # noqa: F401
+        bg = canvas()
+        cv2.rectangle(bg, (0, 380), (640, 480), (40, 40, 40), -1)              # 검은 책상 (움직이지 않음)
+        opened = bg.copy()
+        for i in range(4):                                                     # 펴진 손가락 4개
+            cv2.rectangle(opened, (300 + i * 22, 120), (314 + i * 22, 230), (30, 30, 30), -1)
+        cv2.rectangle(opened, (290, 230), (390, 300), (30, 30, 30), -1)          # 손바닥
+        grip = bg.copy()
+        cv2.rectangle(grip, (290, 200), (390, 300), (30, 30, 30), -1)            # 접힌 손가락이 손바닥 쪽으로
+        opened2 = opened.copy()
+        if person_walks:
+            cv2.rectangle(grip, (20, 20), (120, 200), (90, 60, 40), -1)          # 쥘 때만 사람이 지나감
+        return opened, grip, opened2
+
+    def test_finds_finger_area(self):
+        from vision.parts import hand_zone_from_motion
+        zone, box = hand_zone_from_motion(*self.frames())
+        x0, y0, x1, y1 = zone
+        self.assertTrue(0.40 < (x0 + x1) / 2 < 0.60, zone)                       # 손 가운데
+        self.assertTrue((y0 + y1) / 2 < 380 / 480, zone)                          # 책상이 아님
+
+    def test_no_motion_returns_none(self):
+        from vision.parts import hand_zone_from_motion
+        f = canvas()
+        self.assertIsNone(hand_zone_from_motion(f, f.copy(), f.copy()))
