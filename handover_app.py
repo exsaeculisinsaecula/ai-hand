@@ -468,7 +468,7 @@ class ViewCam:
 class Runtime:
     ROI_FILE = ROOT / "data" / "palm_roi.json"
     SETTINGS_FILE = ROOT / "data" / "handover_settings.json"
-    DEFAULT_ROI = (0.30, 0.35, 0.65, 0.75)       # 팀 zones.json 의 palm 영역
+    DEFAULT_ROI = (0.30, 0.22, 0.70, 0.78)       # 쥘 자리: 화면 가운데 넉넉한 사각형
 
     def __init__(self, link, camera_index: int, model_path: Path | None = None, conf: float = 0.35, vlm=None,
                  tray_roi: tuple | None = None):

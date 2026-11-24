@@ -2877,6 +2877,22 @@
   .jp-last { margin-top: 2px; padding-top: 4px; font-size: 12px; }
   /* 좁은 화면 높이: 3D 화면이 줄어들어 아래 조작 줄이 보이게 */
   body.handover-mode .col-left .mp-window > .canvas-wrap { min-height: 120px !important; }
+  /* 쥘 자리는 화면 가운데 고정 사각형 — 자동 찾기 버튼은 숨김 (정확하지 않아서, 코드는 남겨 둠) */
+  #roiAutoBtn { display: none !important; }
+  /* 쥘 자리: 이름표는 상자 안쪽 왼쪽 위 (선 없이) — 선으로 이어진 말풍선은 공에만 */
+  .det-box.zone .det-lead { display: none; }
+  .det-box.zone .det-card, .det-box.zone.tag-left .det-card, .det-box.zone.tag-below .det-card {
+    left: 8px; right: auto; top: auto; bottom: 8px; transform: none; animation: none; min-width: 0; margin-top: 0 !important;
+    border-right-width: 1px; border-left: 3px solid var(--c); background: rgba(255, 255, 255, 0.8); }
+  .det-box.zone .det-card::after { display: none; }
+  /* 쥘 자리 이름표: 상자 바로 아래 한 줄 (안쪽의 공을 가리지 않게) */
+  .det-box.zone .det-card, .det-box.zone.tag-left .det-card, .det-box.zone.tag-below .det-card {
+    top: calc(100% + 4px); bottom: auto; left: -1px; padding: 2px 8px; background: rgba(255, 255, 255, 0.88);
+    display: flex; align-items: baseline; gap: 8px; border: 0; border-left: 3px solid var(--c); }
+  .det-box.zone .dc-main { gap: 6px; }
+  .det-box.zone .dc-color { font-size: 12px; }
+  .det-box.zone .dc-kind { font-size: 11px; letter-spacing: 0.1em; }
+  .det-box.zone .dc-meta { margin: 0; padding: 0; border: 0; font-family: inherit; font-size: 11px; }
 </style>
 </head>
 <body>
@@ -5093,7 +5109,7 @@
     nodes.slice(items.length).forEach((n) => n.remove());
     // 말풍선이 겹치면 뒤의 것을 아래로 밀어 냄 (선은 그대로 상자에 이어짐)
     const placed = [];
-    layer.querySelectorAll('.det-box .det-card').forEach((card) => {
+    layer.querySelectorAll('.det-box:not(.zone) .det-card').forEach((card) => {
       card.style.marginTop = '0px';
       let r = card.getBoundingClientRect();
       let shift = 0;
