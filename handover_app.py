@@ -1140,7 +1140,9 @@ class Runtime:
             snap["camera_disabled"] = sorted(self.cam_disabled)
             snap["camera"] = {"index": self.camera_index, "off": self.camera_off(), "error": self.cam_error, "fps": round(self.fps, 1),
                               "running": self._camera_ok(), "infer_ms": round(self.infer_ms)}
-            snap["detector"] = {"name": self.detector_info, "yolo": self.yolo is not None,
+            vlm_on = self.task.vlm is not None and self.task.vlm.online and self.task.vlm.verify_below > 0
+            snap["detector"] = {"name": (f"VLM {self.task.vlm.model} 이 판정 · 색 규칙은 공이 놓였는지만 감지" if vlm_on
+                                         else self.detector_info), "yolo": self.yolo is not None,
                                 "labels": list(self.yolo.names.values()) if self.yolo else list(LABELS)}
             snap["samples"] = self._capture_counts() if self.yolo else self.clf.counts()
             snap["vlm"] = self.task.vlm.status() if self.task.vlm is not None else {"online": False, "note": "--no-vlm"}

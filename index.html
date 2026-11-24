@@ -5063,7 +5063,12 @@
       const match = snap.target && seen.label === snap.target;
       verdictBadge.textContent = `${seen.label_ko} ${Math.round(seen.confidence * 100)}%`;
       verdictBadge.className = `verdict-badge ${match ? 'pass' : snap.target ? 'fail' : ''} mono`;
-      verdictReason.textContent = seen.reason;
+      const vl = snap.vlm_last;
+      const vlmOn = snap.vlm && snap.vlm.online;
+      verdictReason.textContent = snap.vlm_state === 'checking' ? `VLM이 손 위에 ${snap.target_ko}이 있는지 확인하는 중…`
+        : (vl && vlmOn && ['VERIFY', 'GRIP', 'PLACE'].includes(snap.state))
+          ? `VLM 판정: ${({ red: '빨간 공', blue: '파란 공', green: '초록 공' })[vl.target] || ''} ${vl.found ? '있음 → 쥐기' : '없음 → NG'} (${vl.seconds}s)`
+          : `${seen.reason}${vlmOn ? ' · 쥘지는 VLM이 판정' : ''}`;
       verdictBar.style.width = `${Math.round(seen.confidence * 100)}%`;
       verdictBar.style.background = `var(--c-ball-${seen.label}, var(--text-muted))`;   // 보이는 공 색으로 막대가 참
     } else {
