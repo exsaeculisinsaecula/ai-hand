@@ -2217,6 +2217,28 @@
   .ho-info dt { color: var(--text-muted); letter-spacing: 0.08em; }
   .ho-info dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
 
+  .es-block { font: inherit; text-align: left; cursor: pointer; }
+  .estop-hw { display: grid; gap: 6px; margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--line); font-size: 17px; }
+  .estop-hw[hidden] { display: none !important; }
+  .estop-hw > div { display: flex; justify-content: space-between; gap: 12px; }
+  .estop-hw span { color: var(--text-muted); }
+  .estop-hw b[data-tone="ok"] { color: var(--c-done); }
+  .estop-hw b[data-tone="bad"] { color: var(--warning); }
+  .estop-hw p { margin: 4px 0 0; color: var(--warning); font-weight: 600; }
+  .estop-hw p:empty { display: none; }
+  .es-panel { width: min(760px, 100%); }
+  .es-info { padding: 0; }
+  .es-steps { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .es-steps li { display: flex; gap: 14px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 17px; color: var(--text-muted); }
+  .es-steps li b { font-family: "IBM Plex Mono", Consolas, ui-monospace, monospace; font-size: 15px; }
+  .es-steps li.now { color: var(--text); font-weight: 700; }
+  .es-steps li.now b { color: var(--warning); }
+  .es-steps li.done { color: var(--text-sec); }
+  .es-steps li.done b { color: var(--c-done); }
+  .es-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+  .es-actions .mp-btn { height: 44px; min-height: 0; padding: 0 18px; font-size: 16px; }
+  .es-actions [hidden] { display: none !important; }
+  .es-wiring { margin: 0; font-size: 14px; color: var(--text-muted); line-height: 1.55; }
   .cam-modal { position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px; background: rgba(45, 42, 36, 0.35); }
   .cam-modal[hidden] { display: none !important; }
   .cam-modal-panel { width: min(1100px, 100%); max-height: calc(100vh - 48px); overflow: auto; background: var(--window); border: 1px solid var(--line-strong); padding: 20px 24px 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(30, 28, 24, 0.25); }
@@ -2838,6 +2860,69 @@
   .det-box.zone { background-color: color-mix(in srgb, var(--c) 4%, transparent) !important; border-style: dashed; }
   .det-box.zone .dc-color { color: var(--text); }
   .det-box.zone.picked { border-style: solid; }
+
+  /* ===== 현재 상태 안 VLM 요약 ===== */
+  .vlm-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 20px 10px; font-size: 13px; color: var(--text-sec); }
+  .vlm-line[hidden] { display: none !important; }
+  .vl-tag { font-size: 12px; letter-spacing: 0.1em; color: var(--text-muted); border: 1px solid var(--line); padding: 1px 6px; }
+  .vl-steps { display: inline-flex; gap: 2px; }
+  .vl-steps i { font-style: normal; font-size: 12px; padding: 1px 7px; border: 1px solid var(--line-faint); color: var(--text-muted); }
+  .vl-steps i.on { border-color: var(--c-work); background: var(--c-work); color: #fff; }
+  .vl-last { color: var(--text); min-width: 0; }
+  .vl-look { color: var(--text-muted); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .vlm-line.off .vl-tag { color: var(--warning); border-color: var(--warning); }
+
+  /* ===== 연결 토폴로지 (알람 바로 위): 작은 노드 · 가는 선 · 흐르는 패킷 ===== */
+  .topo { order: 98; background: var(--window); border: 1px solid var(--line); padding: 8px 14px 4px; }
+  .topo-head { display: flex; align-items: center; gap: 12px; min-height: 24px; }
+  .topo-head b { font-size: 13px; letter-spacing: 0.14em; color: var(--text); }
+  .topo-sum { font-size: 12px; color: var(--text-muted); transition: color var(--t-mid) var(--ease); }
+  .topo-sum.bad { color: var(--warning); }
+  .topo-legend { margin-left: auto; display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); letter-spacing: 0.04em; }
+  .topo-legend i { display: inline-block; width: 7px; height: 7px; margin-right: 5px; vertical-align: 0; }
+  .topo-fold { height: 22px; padding: 0 8px; font: inherit; font-size: 11px; letter-spacing: 0.06em; border: 1px solid var(--line-faint);
+    background: transparent; color: var(--text-muted); cursor: pointer; transition: border-color var(--t-fast), color var(--t-fast); }
+  .topo-fold:hover { border-color: var(--text); color: var(--text); }
+  .topo-body { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--t-mid) var(--ease), opacity var(--t-mid) var(--ease); }
+  .topo-body > div { overflow: hidden; min-height: 0; }
+  .topo.folded .topo-body { grid-template-rows: 0fr; opacity: 0; }
+  .topo-svg { display: block; width: 100%; height: auto; max-height: 240px; margin-top: 4px; }
+  @media (max-width: 760px) { .topo-legend { display: none; } }
+
+  .tl { fill: none; stroke: var(--line-faint); stroke-width: 1.5; stroke-linecap: round;
+    transition: stroke 600ms var(--ease), opacity 600ms var(--ease); }
+  .tl.ok { stroke: color-mix(in srgb, var(--c-done) 45%, var(--line-faint)); }
+  .tl.warn, .tl.busy { stroke: color-mix(in srgb, var(--c-hold) 70%, var(--line-faint)); }
+  .tl.bad { stroke: var(--warning); stroke-dasharray: 3 5; animation: tl-drift 1.6s linear infinite; }
+  .tl.off { stroke: var(--line-faint); stroke-dasharray: 1 5; }
+  .tl.unk { stroke: color-mix(in srgb, var(--line) 45%, var(--line-faint)); }
+  .tl.nc { stroke-dasharray: 2 4; }
+  @keyframes tl-drift { to { stroke-dashoffset: -16; } }
+  .pk { fill: var(--c-done); }
+  .pk.fast { fill: var(--c-work); }
+  .pk.ev { fill: var(--c-work); }
+  .pk.rx { fill: var(--c-done); }
+
+  .tn { transition: opacity 500ms var(--ease); }
+  .tn.click { cursor: pointer; }
+  .tn-box { fill: var(--window); stroke: var(--line-faint); stroke-width: 1; transition: stroke 400ms var(--ease), fill 400ms var(--ease); }
+  .tn.click:hover .tn-box { stroke: var(--text); }
+  .tn.pc .tn-box { stroke: var(--line); fill: var(--accent-bg); }
+  .tn.bad .tn-box { stroke: var(--warning); }
+  .tn.off { opacity: 0.5; }
+  .tn-lamp { fill: var(--line); transition: fill 400ms var(--ease); }
+  .tn.ok .tn-lamp { fill: var(--c-done); }
+  .tn.warn .tn-lamp, .tn.busy .tn-lamp { fill: var(--c-hold); }
+  .tn.bad .tn-lamp { fill: var(--warning); }
+  .tn.unk .tn-lamp { fill: var(--line); }
+  .tn.busy .tn-lamp, .tn.bad .tn-lamp { animation: tn-blink 1.4s var(--ease) infinite; }
+  @keyframes tn-blink { 50% { opacity: 0.2; } }
+  .tn-t { font-size: 12.5px; font-weight: 700; fill: var(--text); letter-spacing: 0.02em; }
+  .tn-d { font-family: "IBM Plex Mono", Consolas, ui-monospace, monospace; font-size: 9.5px; font-weight: 400; fill: var(--text-muted); }
+  .tn.bad .tn-d { fill: var(--warning); }
+  .tn.flash .tn-box { animation: tn-flash 900ms var(--ease); }
+  @keyframes tn-flash { 0% { stroke: var(--text); stroke-width: 2; } 100% { stroke-width: 1; } }
+  @media (prefers-reduced-motion: reduce) { .tl.bad, .tn-lamp { animation: none !important; } }
   /* ===== 판정 방식 패널 (알람 바로 위) ===== */
   .judge-panel { order: 98; background: var(--window); border: 1px solid var(--line); padding: 10px 16px 12px; position: relative; }
   .jp-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
@@ -2928,6 +3013,207 @@
   .judge-panel:not(.expanded) .jp-look .vd-chip.wide { display: none; }       /* 주변·메모는 [자세히] 에서 */
   .judge-panel.expanded .jp-look .vd-chip.wide { white-space: normal; }
   @media (max-width: 1100px) { .jp-body { grid-template-columns: minmax(0, 1fr); } .jp-look { border-left: 0; padding-left: 0; border-top: 1px solid var(--line-faint); padding-top: 6px; } }
+
+  /* ===== 화면 정리 (2026-11-28): 영상 비율에 맞춘 카메라 · 3D 는 현재 상태 안 · 글자 줄이기 ===== */
+  @media (min-width: 1021px) {
+    body.handover-mode .console { grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 10px 16px 12px; }
+    body.handover-mode .main-split { grid-template-columns: minmax(470px, 1fr) var(--cam-col, minmax(0, 1.3fr)); min-height: 0; }
+  }
+  body.handover-mode .sysbar { padding-top: 4px; padding-bottom: 4px; }
+  body.handover-mode .hdr-block { height: 52px; }
+  body.handover-mode .estop-btn { min-height: 52px; }
+  body.handover-mode .alarm-banner { height: 40px; min-height: 40px; }
+  body.handover-mode .alarm-banner .alarm-ack { height: 30px; min-height: 30px; }
+
+  /* 왼쪽 열: 현재 상태 카드가 3D 손 모델까지 품고 남는 높이를 모두 씀 */
+  body.handover-mode .col-left > .mp-window.robot-win { display: none; }
+  body.handover-mode .col-left > .status-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  body.handover-mode .col-left > .status-card > .status-col { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  body.handover-mode .col-left > .status-card .status-kicker { display: none; }
+  body.handover-mode .col-left > .status-card .status-top { padding-top: 12px; padding-bottom: 2px; }
+  body.handover-mode .col-left > .status-card .status-state { font-size: 24px; }
+  body.handover-mode .col-left > .status-card #smFlow { align-self: stretch; }
+  body.handover-mode .wf-slot { position: relative; flex: 1 1 auto; min-height: 90px; margin: 8px 0 0; border: 1px solid var(--line-faint); overflow: hidden; }
+  body.handover-mode .wf-slot .canvas-wrap { position: absolute; inset: 0; height: auto !important; min-height: 0 !important; border: 0; }
+  body.handover-mode .wf-views { position: absolute; top: 6px; right: 6px; z-index: 3; display: flex; gap: 2px; }
+  body.handover-mode .wf-views .win-tool-btn { height: 24px; min-height: 0; padding: 0 8px; font-size: 11px; background: color-mix(in srgb, var(--window) 88%, transparent); }
+  body.handover-mode .wf-slot .stage-overlay-hint { display: none; }
+  body.handover-mode .col-left > .status-card .robot-ctrl { margin: 0; padding: 8px 0 0; border: 0; gap: 6px; flex-wrap: wrap; }
+  body.handover-mode .col-left > .status-card .robot-ctrl .mp-btn { height: 30px; min-height: 0; padding: 0 10px; font-size: 13px; }
+  body.handover-mode .col-left > .status-card .robot-ctrl .pose-read { margin-left: auto; font-size: 12px; }
+
+  /* 오른쪽 열: 카메라 칸은 영상 비율 그대로 (폭은 화면 높이에 맞춰 자동), 버튼은 영상 위에 마우스를 올릴 때만 */
+  body.handover-mode #cameraWindow .win-titlebar { min-height: 0; height: 44px; gap: 10px; justify-content: flex-start; }
+  body.handover-mode #cameraWindow .split-ctl { margin-left: 0; }
+  body.handover-mode #cameraWindow .win-tools { display: none; }
+  body.handover-mode #cameraWindow.tools-open .win-titlebar { height: auto; flex-wrap: wrap !important; padding-bottom: 6px; }
+  body.handover-mode #cameraWindow.tools-open .win-tools { display: flex; flex-basis: 100%; order: 9; }
+  .cam-tools-btn { margin-left: auto; height: 28px; padding: 0 10px; font: inherit; font-size: 12px; letter-spacing: 0.06em; border: 1px solid var(--line-faint);
+    background: transparent; color: var(--text-muted); cursor: pointer; transition: border-color var(--t-fast), color var(--t-fast); }
+  .cam-tools-btn:hover, #cameraWindow.tools-open .cam-tools-btn { border-color: var(--text); color: var(--text); }
+  .cam-tabs { display: flex; gap: 2px; margin-right: auto; }
+  .cam-tabs[hidden] { display: none !important; }
+  .cam-tab { height: 28px; padding: 0 10px; font: inherit; font-family: "IBM Plex Mono", Consolas, monospace; font-size: 12px; border: 1px solid var(--line-faint);
+    background: transparent; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
+  .cam-tab i { width: 6px; height: 6px; background: var(--line); }
+  .cam-tab.ok i { background: var(--c-done); }
+  .cam-tab.bad i { background: var(--warning); }
+  .cam-tab:hover { border-color: var(--text); color: var(--text); }
+  .cam-tab.on { background: var(--text); border-color: var(--text); color: var(--window); }
+  body.handover-mode .cam-grid { transition: height var(--t-mid) var(--ease); }
+  body.handover-mode .cam-tile .tile-bar { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; height: 40px;
+    background: color-mix(in srgb, var(--window) 90%, transparent); border-top: 1px solid var(--line-faint);
+    opacity: 0; transform: translateY(8px); pointer-events: none;
+    transition: opacity var(--t-mid) var(--ease), transform var(--t-mid) var(--ease); }
+  body.handover-mode .cam-tile:hover .tile-bar, body.handover-mode .cam-tile:focus-within .tile-bar,
+  body.handover-mode .cam-tile:not(.has-cam) .tile-bar { opacity: 1; transform: none; pointer-events: auto; }
+  body.handover-mode .cam-tile .tile-bar .tile-btn, body.handover-mode .cam-tile .tile-bar select { height: 28px; font-size: 13px; }
+  body.handover-mode #cameraWindow .verdict-panel { padding: 4px 12px 5px; }
+  body.handover-mode #cameraWindow .verdict-top { min-height: 0; height: 26px; gap: 10px; }
+  body.handover-mode #cameraWindow .verdict-badge { font-size: 12px; padding: 2px 8px; }
+  body.handover-mode #cameraWindow .verdict-reason { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
+  body.handover-mode #cameraWindow .verdict-panel .cont-bar { height: 2px; margin-top: 3px; }
+
+  /* 요청 입력: 제목 줄 없이 입력 한 줄 + 예시 한 줄 (VLM 상태는 연결 그림에) */
+  body.handover-mode .ask-card .ask-box { grid-template-rows: 46px 36px !important; grid-template-areas: "field" "extra" !important;
+    padding: 10px 16px 12px !important; row-gap: 8px; }
+  body.handover-mode .ask-card .ask-label { display: none !important; }
+  body.handover-mode .ask-card .ask-field { height: 46px; }
+  body.handover-mode .ask-card .ask-field input { font-size: 18px; min-width: 0; text-overflow: ellipsis; }
+  body.handover-mode .ask-card .ask-mic, body.handover-mode .ask-card .ask-send { height: 40px; min-height: 0; }
+  body.handover-mode .ask-card .ask-examples .ball-btn { height: 36px; min-height: 0; font-size: 14px; }
+
+  /* 연결 그림은 남는 칸이 있는 열에 (JS 가 옮김) */
+  body.handover-mode .col-left > .topo, body.handover-mode .col-right > .topo { flex: none; order: 0; }
+
+  /* ===== 글자 넘침 정리 ===== */
+  body.handover-mode .col-left > .status-card .status-state { line-height: 1.25; }
+  body.handover-mode #simMsg { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  body.handover-mode .col-left > .status-card .sm-name { font-size: 13px; letter-spacing: 0; white-space: nowrap; }
+  body.handover-mode .hdr-value, body.handover-mode .hdr-label { white-space: nowrap; }
+  body.handover-mode .hdr-value { line-height: 1.25; }
+  .topo-head { min-width: 0; }
+  .topo-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topo-fold, .topo-head b { flex: none; white-space: nowrap; }
+  .topo-legend { flex: none; white-space: nowrap; }
+  @media (max-width: 1600px) { .topo-legend { display: none; } }
+  body.handover-mode .vlm-line { row-gap: 4px; }
+  body.handover-mode .vl-last { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+
+  /* ===== 높이 맞춤: 상단 바 낮게 · 짧은 화면(노트북)도 스크롤 없이 한 화면에 ===== */
+  body.handover-mode .shift-stats { height: 52px; }
+  body.handover-mode .shift-stat { height: 50px; min-height: 0; padding-top: 2px; padding-bottom: 2px; }
+  body.handover-mode .estop-btn { height: 52px; min-height: 0; }
+  @media (min-width: 1021px) and (max-height: 779px) and (min-height: 640px) {
+    html:has(body.handover-mode), body.handover-mode { height: 100% !important; overflow: hidden !important; }
+    body.handover-mode .console { height: 100vh !important; overflow: hidden !important; padding-top: 6px; padding-bottom: 8px; gap: 8px; }
+    body.handover-mode .hdr-block, body.handover-mode .shift-stats, body.handover-mode .estop-btn { height: 44px; }
+    body.handover-mode .shift-stat { height: 42px; }
+    body.handover-mode .col-left > .status-card .status-top { padding-top: 8px; }
+    body.handover-mode .col-left > .status-card .status-state { font-size: 21px; }
+    body.handover-mode .wf-slot { min-height: 60px; }
+    body.handover-mode .topo-svg { max-height: 124px; }
+    body.handover-mode .alarm-banner { height: 34px; min-height: 34px; }
+    body.handover-mode .estop-text small { display: none; }
+  }
+
+  /* 조작 줄(펴기 · 쥐기 · 내려놓기 · NG · 손목)은 화면에서 뺌 */
+  body.handover-mode .col-left > .status-card .robot-ctrl { display: none !important; }
+  body.handover-mode .topo { padding-bottom: 8px; }
+
+  /* [도구] 버튼: 제목 줄 세로 가운데 · 분할 버튼과 같은 높이 */
+  body.handover-mode #cameraWindow .win-titlebar { align-items: center; }
+  body.handover-mode #cameraWindow .cam-tools-btn { align-self: center; height: 30px; margin-top: 0; margin-bottom: 0; font-size: 13px; line-height: 1; }
+
+  /* ===== 정렬 · 여백 대칭: 카드 제목 줄은 모두 44px · 같은 글꼴 · 아래 선, 버튼은 줄 가운데 ===== */
+  body.handover-mode .sysbar { height: 64px; padding-top: 0; padding-bottom: 0; align-items: center; }
+  body.handover-mode .sysbar-right { padding-top: 0; padding-bottom: 0; align-items: center; }
+  body.handover-mode .col-left > .status-card > .status-col { padding: 0 18px 16px; }
+  body.handover-mode .col-left > .status-card .status-top { padding: 0; row-gap: 12px; grid-template-rows: 44px auto; }
+  body.handover-mode .col-left > .status-card .status-top::before { content: ''; grid-row: 1; grid-column: 1 / -1; margin: 0 -18px; align-self: stretch; justify-self: stretch;
+    border-bottom: 1px solid var(--line); pointer-events: none; }
+  body.handover-mode .col-left > .status-card .status-label { font-size: 18px; font-weight: 600; letter-spacing: 0.14em; color: var(--text);
+    gap: 10px; align-self: center; }
+  body.handover-mode .col-left > .status-card .status-label::after { display: none; }
+  body.handover-mode .col-left > .status-card .status-label::before { content: ''; display: block; width: 10px; height: 10px; flex: none;
+    background: var(--c-work); border: 0; margin: 0; }
+  body.handover-mode .col-left > .status-card .status-actions { align-self: center; gap: 6px; }
+  body.handover-mode .col-left > .status-card .status-actions button { height: 30px; min-height: 0; padding: 0 14px; font-size: 14px; }
+  body.handover-mode .col-left > .status-card .status-now { align-self: center; }
+  body.handover-mode .ask-card .ask-box { padding: 12px 16px !important; }
+  body.handover-mode .ask-card .ask-field { align-items: center; }
+  body.handover-mode .ask-card .ask-mic, body.handover-mode .ask-card .ask-send { height: 40px; min-height: 0; margin: 0 !important; align-self: center; }
+  body.handover-mode .ask-card .ask-mic { margin-right: 8px !important; }
+  body.handover-mode .ask-card .vlm-result { height: 36px; }
+  .topo-head b { font-size: 15px; font-weight: 600; letter-spacing: 0.14em; display: inline-flex; align-items: center; gap: 8px; }
+  .topo-head b::before { content: ''; width: 8px; height: 8px; background: var(--c-work); }
+
+  /* 현재 상태: 제목 · 단계 표시 · 3D 만 (큰 상태 글자 · 안내 문장 · 시간 · VLM 줄 · 머리 버튼은 뺌) */
+  body.handover-mode .col-left > .status-card .status-now,
+  body.handover-mode .col-left > .status-card .status-actions,
+  body.handover-mode .col-left > .status-card .bar-band,
+  body.handover-mode .col-left > .status-card #vlmLine { display: none !important; }
+  body.handover-mode .col-left > .status-card .status-top { grid-template-rows: 44px; row-gap: 0; }
+  body.handover-mode .col-left > .status-card #smFlow { margin-top: 18px; }
+  body.handover-mode .manual-cancel { margin-left: auto; }
+
+  /* ===== 알람 줄 없앰 (연결 그림이 대신) · 손 모델 옆 비상정지 버튼 · 세로 신호등 ===== */
+  body.handover-mode .alarm-banner { display: none !important; }
+  @media (min-width: 1021px) { body.handover-mode .console { grid-template-rows: auto minmax(0, 1fr) !important; } }
+  body.handover-mode .wf-row { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; margin-top: 12px; }
+  body.handover-mode .wf-row > .wf-slot { flex: 1 1 auto; margin: 0; min-height: 0; }
+  body.handover-mode .side-col { flex: none; width: 116px; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  body.handover-mode .side-col .estop-btn { width: 100%; height: auto; min-height: 0; min-width: 0; aspect-ratio: 1; flex: none;
+    flex-direction: column; justify-content: center; align-items: center; gap: 8px; padding: 10px 6px; margin: 0; border-radius: 0; }
+  body.handover-mode .side-col .estop-btn .estop-text { align-items: center; }
+  body.handover-mode .side-col .estop-btn .estop-text b { font-size: 18px; letter-spacing: 0.08em; }
+  body.handover-mode .side-col .estop-btn .estop-text small { display: block !important; font-size: 10px; }
+  body.handover-mode .side-col .estop-btn .estop-icon { width: 30px; height: 30px; }
+  .stack-light { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: center; gap: 8px;
+    padding: 10px 10px; background: var(--window); border: 1px solid var(--line-faint); }
+  .sl-lamp { flex: 1 1 0; min-height: 0; max-height: 46px; display: flex; align-items: center; gap: 10px; }
+  .sl-lamp i { flex: none; height: 100%; max-height: 34px; min-height: 14px; aspect-ratio: 1; border-radius: 50%;
+    background: var(--l); opacity: 0.16; transition: opacity 420ms var(--ease), box-shadow 420ms var(--ease); }
+  .sl-lamp span { font-size: 13px; letter-spacing: 0.08em; color: var(--text-muted); transition: color 420ms var(--ease); }
+  .sl-lamp.red { --l: #B5524A; } .sl-lamp.amber { --l: #CF953C; } .sl-lamp.green { --l: #6E9B6A; }
+  .sl-lamp.on i { opacity: 1; box-shadow: 0 0 0 4px color-mix(in srgb, var(--l) 18%, transparent), 0 0 18px color-mix(in srgb, var(--l) 55%, transparent); }
+  .sl-lamp.on span { color: var(--text); font-weight: 700; }
+  .sl-lamp.red.on i, .sl-lamp.amber.on i, .stack-light.moving .sl-lamp.green.on i { animation: sl-pulse 1.6s var(--ease) infinite; }
+  @keyframes sl-pulse { 50% { opacity: 0.55; } }
+  @media (prefers-reduced-motion: reduce) { .sl-lamp.on i { animation: none !important; } }
+  .sl-why { margin: 0; font-size: 12px; line-height: 1.35; text-align: center; color: var(--text-muted); min-height: 2.7em;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .sl-why[data-lv="red"] { color: #B5524A; font-weight: 700; }
+  .sl-why[data-lv="amber"] { color: #9A6A22; font-weight: 600; }
+  @media (min-width: 1021px) and (max-height: 779px) {
+    body.handover-mode .side-col { width: 100px; gap: 6px; }
+    body.handover-mode .side-col .estop-btn .estop-text small { display: none !important; }
+    .stack-light { padding: 6px 8px; gap: 4px; }
+    .sl-why { min-height: 0; }
+  }
+
+  /* 손 모델 시점 버튼 없음 (ISO 고정) */
+  body.handover-mode .wf-views { display: none !important; }
+  /* 입력창 줄: 입력칸 · 말하기 · 가져오기를 같은 높이 상자로, 세로 가운데 */
+  body.handover-mode .ask-card .ask-field { height: auto; border: 0 !important; gap: 8px; align-items: center; }
+  body.handover-mode .ask-card .ask-field::before, body.handover-mode .ask-card .ask-field::after { display: none !important; }
+  body.handover-mode .ask-card .ask-field input { height: 40px; box-sizing: border-box; border: 1px solid var(--line) !important;
+    padding: 0 14px !important; font-size: 16px; background: var(--window); align-self: center; flex: 1 1 auto; }
+  body.handover-mode .ask-card .ask-field input:focus { outline: none; border-color: var(--text) !important; }
+  body.handover-mode .ask-card .ask-mic, body.handover-mode .ask-card .ask-send { height: 40px !important; box-sizing: border-box; margin: 0 !important; }
+  body.handover-mode .ask-card .ask-box { grid-template-rows: 40px 36px !important; row-gap: 10px !important; padding: 14px 16px !important; }
+
+  /* 남는 높이를 자연스럽게: 요청 카드는 내용을 세로 가운데로 · 신호등 등은 크게 고르게 */
+  body.handover-mode .col-right > .ask-card { display: flex; flex-direction: column; justify-content: center; }
+  body.handover-mode .col-right > .ask-card > .ask-col { flex: none; }
+  .stack-light { justify-content: space-evenly; }
+  .sl-lamp { flex: 0 1 auto; max-height: none; }
+  .sl-lamp i { height: 44px; max-height: 44px; }
+  @media (min-width: 1021px) and (max-height: 779px) { .sl-lamp i { height: 28px; max-height: 28px; } }
+
+  body.handover-mode .col-right > .topo { flex: 1 1 auto; display: flex; flex-direction: column; }
+  body.handover-mode .col-right > .topo .topo-body { flex: 1 1 auto; align-content: center; }
 </style>
 </head>
 <body>
@@ -2954,6 +3240,10 @@
         <span class="hdr-label">카메라</span>
         <b class="hdr-value" id="camBadge"><i class="dot"></i>확인 중</b>
       </div>
+      <button class="hdr-block hdr-button conn-block es-block" id="esBlock" type="button" hidden title="비상정지 버튼 — 눌러서 등록 · 점검">
+        <span class="hdr-label">비상정지</span>
+        <b class="hdr-value" id="esBadge"><i class="dot"></i>확인 중</b>
+      </button>
       <button id="drawerOpenBtn" class="hdr-block hdr-button drawer-open-btn" type="button" aria-controls="detailDrawer" aria-expanded="false">
         <span class="hdr-label">메뉴</span>
         <b class="hdr-value">로그 · 설정</b>
@@ -3002,6 +3292,12 @@
             <span class="mono" id="simTimer">0.0s</span>
           </div>
           <div class="cont-bar"><i id="simBar"></i></div>
+        </div>
+        <div class="vlm-line" id="vlmLine" hidden>
+          <span class="vl-tag">VLM 판단</span>
+          <span class="vl-steps" id="vlSteps"></span>
+          <span class="vl-last" id="vlLast">최근 판정 없음</span>
+          <span class="vl-look" id="vlLook"></span>
         </div>
   
         <div class="sm-grid" id="smFlow">
@@ -3184,6 +3480,35 @@
 </div>
 
 <!-- Camera selection window -->
+<div class="cam-modal" id="esPanel" role="dialog" aria-modal="true" aria-labelledby="esPanelTitle" hidden>
+  <div class="cam-modal-panel es-panel">
+    <div class="cam-picker-head">
+      <b id="esPanelTitle">비상정지 버튼</b>
+      <button type="button" class="mp-btn" id="esPanelClose">닫기</button>
+    </div>
+    <dl class="ho-info es-info">
+      <div><dt>상태</dt><dd id="esInfoState">-</dd></div>
+      <div><dt>연결</dt><dd id="esInfoPort">-</dd></div>
+      <div><dt>회로 검사</dt><dd id="esInfoCheck">-</dd></div>
+    </dl>
+    <ol class="es-steps" id="esSteps">
+      <li data-step="scan"><b>01</b><span>회로 찾기 — 버튼을 풀어 둔 채 시작합니다</span></li>
+      <li data-step="press"><b>02</b><span>버튼 누르기 — 회로가 열리는지 확인합니다</span></li>
+      <li data-step="release"><b>03</b><span>버튼 풀기 — 회로가 다시 닫히는지 확인합니다</span></li>
+    </ol>
+    <div class="cam-picker-msg" id="esPairMsg"></div>
+    <div class="es-actions">
+      <button type="button" class="mp-btn" id="esPairBtn">스위치 등록</button>
+      <button type="button" class="mp-btn" id="esPairCancel" hidden>등록 취소</button>
+      <button type="button" class="mp-btn" id="esUnpairBtn" hidden>등록 지우기</button>
+      <button type="button" class="mp-btn" id="esMockPress" hidden>가상 버튼 누르기</button>
+      <button type="button" class="mp-btn" id="esMockPlug" hidden>가상 어댑터 빼기</button>
+    </div>
+    <p class="es-wiring">배선 — 버튼의 NC 접점 ① 은 서보 전원(+)에 직렬로 넣어 전원을 직접 끊고, NC 접점 ② 는 USB-시리얼 어댑터의
+      출력선(RTS 또는 DTR)과 입력선(CTS · DSR · DCD 중 하나)에 연결합니다. [스위치 등록]을 누르면 어느 선인지 프로그램이 직접 찾습니다.</p>
+  </div>
+</div>
+
 <div class="cam-modal" id="camPicker" role="dialog" aria-modal="true" aria-labelledby="camPickTitle" hidden>
   <div class="cam-modal-panel">
     <div class="cam-picker-head">
@@ -3217,6 +3542,11 @@
       </div>
     </div>
     <p class="estop-desc" id="estopDesc">로봇 동작을 즉시 멈췄습니다. 모든 관절은 현재 각도를 유지합니다.</p>
+    <div class="estop-hw" id="estopHw" hidden>
+      <div><span>비상정지 버튼</span><b id="estopHwState">-</b></div>
+      <div><span>로봇 정지 확인</span><b id="estopHwAck">-</b></div>
+      <p id="estopHwWhy"></p>
+    </div>
     <ol class="estop-steps">
       <li><b>01</b><span>작업 영역 안에 사람이나 손이 없는지 확인하십시오.</span></li>
       <li><b>02</b><span>그리퍼나 슈트에 걸린 부품·이물질을 치우십시오.</span></li>
@@ -4096,7 +4426,9 @@
     if (world.emergencyStopped) {
       alarmBanner.setAttribute('role', 'alert');
       alarmBanner.dataset.kind = 'stop';
-      alarmText.textContent = '비상 정지됨 — 로봇이 현재 자세로 멈췄습니다. 주변을 확인한 뒤 [대기 복귀]를 누르십시오.';
+      alarmText.textContent = hoEstop && hoEstop.latched && hoEstop.reason
+        ? `비상 정지 — ${hoEstop.reason}. ${hoEstop.reset_ready ? '주변을 확인한 뒤 [대기 복귀]를 누르십시오.' : hoEstop.reset_why}`
+        : '비상 정지됨 — 로봇이 현재 자세로 멈췄습니다. 주변을 확인한 뒤 [대기 복귀]를 누르십시오.';
       alarmTime.textContent = '';
       alarmAck.hidden = true;
       return;
@@ -4148,6 +4480,89 @@
   let estopDismissed = false;
   let estopNextSource = '';
 
+  // ===== 물리 비상정지 버튼 (서버 EStop: 회로 능동 검사 · 정지 잠금 · 스위치 등록) =====
+  const estopDesc = document.getElementById('estopDesc');
+  const estopHw = document.getElementById('estopHw');
+  const esBlock = document.getElementById('esBlock');
+  const esPanel = document.getElementById('esPanel');
+  const ES_TONE = { closed: 'ok', unpaired: 'warn', checking: 'busy', open: 'bad', absent: 'bad', fault: 'bad' };
+  var hoEstop = null;                                   // var: 위쪽 알람 함수가 먼저 불려도 안전
+  let esUnpairArmed = 0;
+  function renderEstopSwitch(es) {
+    hoEstop = es || null;
+    if (!es) { esBlock.hidden = true; estopHw.hidden = true; return; }
+    const pairingNow = Boolean(es.pairing && ['starting', 'scan', 'press', 'release'].includes(es.pairing.step));
+    esBlock.hidden = false;
+    esBlock.dataset.state = pairingNow ? 'busy' : (ES_TONE[es.input] || 'warn');
+    document.getElementById('esBadge').innerHTML = `<i class="dot"></i>${pairingNow ? '등록 중' : es.input_ko}`;
+    esBlock.title = es.paired ? `${es.port} · ${es.lines} · ${es.detail}` : '비상정지 스위치가 등록되지 않았습니다 — 눌러서 등록';
+    // 정지 안내 창: 버튼 상태 · 로봇이 STOP 을 받았는지 · 해제할 수 있는지
+    estopHw.hidden = !es.latched;
+    if (es.latched) {
+      const st = document.getElementById('estopHwState');
+      st.textContent = es.paired ? `${es.input_ko} — ${es.detail}` : '미등록 (화면 · micro:bit 정지만 사용)';
+      st.dataset.tone = es.input === 'closed' ? 'ok' : (es.paired ? 'bad' : '');
+      const ack = document.getElementById('estopHwAck');
+      ack.textContent = es.robot_ack ? 'STOP 응답 받음' : 'STOP 을 다시 보내는 중';
+      ack.dataset.tone = es.robot_ack ? 'ok' : '';
+      document.getElementById('estopHwWhy').textContent = es.reset_ready ? '' : es.reset_why;
+      if (es.reason) estopSource.textContent = es.reason;
+      estopDesc.textContent = es.sources.includes('button')
+        ? '비상정지 버튼으로 로봇을 멈췄습니다. 버튼을 풀어도 로봇은 스스로 움직이지 않습니다.'
+        : '로봇 동작을 즉시 멈췄습니다. 해제하기 전까지 로봇 명령은 모두 막힙니다.';
+    }
+    estopReleaseBtn.disabled = !(estopConfirm.checked && (!es.latched || es.reset_ready));
+    // 등록 · 점검 창
+    document.getElementById('esInfoState').textContent = `${es.latched ? '정지 잠금 · ' : ''}${es.input_ko} — ${es.detail}`;
+    document.getElementById('esInfoPort').textContent = es.paired ? `${es.port} · ${es.lines}${es.mock ? ' (가상)' : ''}` : '등록된 스위치 없음';
+    document.getElementById('esInfoCheck').textContent = es.paired
+      ? `${Number(es.cycles).toLocaleString()}회${es.latency_ms != null ? ` · 응답 ${es.latency_ms}ms` : ''}${es.blocked ? ` · 막은 명령 ${es.blocked}개` : ''}`
+      : '-';
+    const pg = es.pairing || {};
+    const order = ['scan', 'press', 'release'];
+    const at = pg.step === 'done' ? 3 : order.indexOf(pg.step === 'starting' ? 'scan' : pg.step);
+    document.querySelectorAll('#esSteps li').forEach((li, i) => {
+      li.classList.toggle('now', pairingNow && i === at);
+      li.classList.toggle('done', (pairingNow && i < at) || pg.step === 'done');
+    });
+    let msg = pg.msg ? `${pg.msg}${pg.left_s != null ? ` (${pg.left_s}초 남음)` : ''}` : '';
+    if (!msg) msg = es.paired ? '등록된 스위치를 계속 감시하고 있습니다.' : '[스위치 등록]을 누르면 시작합니다. 등록하는 동안 로봇은 정지합니다.';
+    if (es.paired && !es.latched && !pairingNow) msg += ' 등록을 지우려면 먼저 비상 정지를 거십시오.';
+    document.getElementById('esPairMsg').textContent = msg;
+    const pairBtn = document.getElementById('esPairBtn');
+    pairBtn.hidden = pairingNow;
+    pairBtn.textContent = es.paired ? '다시 등록' : '스위치 등록';
+    document.getElementById('esPairCancel').hidden = !pairingNow;
+    document.getElementById('esUnpairBtn').hidden = !es.paired || pairingNow || !es.latched;
+    const mp = document.getElementById('esMockPress');
+    const mg = document.getElementById('esMockPlug');
+    mp.hidden = !es.mock;
+    mg.hidden = !es.mock;
+    if (es.mock) {
+      mp.textContent = es.mock_pressed ? '가상 버튼 풀기' : '가상 버튼 누르기';
+      mg.textContent = es.mock_plugged ? '가상 어댑터 빼기' : '가상 어댑터 꽂기';
+    }
+  }
+  esBlock.addEventListener('click', () => { esPanel.hidden = false; });
+  document.getElementById('esPanelClose').addEventListener('click', () => { esPanel.hidden = true; });
+  esPanel.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') { ev.stopPropagation(); esPanel.hidden = true; } });
+  document.getElementById('esPairBtn').addEventListener('click', () => postBackendAction('estop_pair'));
+  document.getElementById('esPairCancel').addEventListener('click', () => postBackendAction('estop_pair_cancel'));
+  document.getElementById('esUnpairBtn').addEventListener('click', (ev) => {
+    const b = ev.currentTarget;
+    if (Date.now() - esUnpairArmed > 3000) {            // 실수로 지우지 않게 두 번 누름
+      esUnpairArmed = Date.now();
+      b.textContent = '한 번 더 누르면 지웁니다';
+      setTimeout(() => { b.textContent = '등록 지우기'; }, 3000);
+      return;
+    }
+    esUnpairArmed = 0;
+    b.textContent = '등록 지우기';
+    postBackendAction('estop_unpair');
+  });
+  document.getElementById('esMockPress').addEventListener('click', () => postBackendAction('estop_mock', null, { pressed: !(hoEstop && hoEstop.mock_pressed) }));
+  document.getElementById('esMockPlug').addEventListener('click', () => postBackendAction('estop_mock', null, { plugged: !(hoEstop && hoEstop.mock_plugged) }));
+
   function estopBeep() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -4193,7 +4608,9 @@
     if (!active && estopWasActive) closeEstop();
     estopWasActive = active;
   }
-  estopConfirm.addEventListener('change', () => { estopReleaseBtn.disabled = !estopConfirm.checked; });
+  estopConfirm.addEventListener('change', () => {
+    estopReleaseBtn.disabled = !(estopConfirm.checked && (!hoEstop || !hoEstop.latched || hoEstop.reset_ready));
+  });
   estopReleaseBtn.addEventListener('click', () => {
     if (!estopConfirm.checked) return;
     closeEstop();
@@ -4424,9 +4841,11 @@
   function renderManual(snap) {
     const row = document.getElementById('manualRow');
     const box = document.getElementById('manualBtns');
-    row.hidden = false;
     const opts = snap.manual || [];
-    const sig = opts.map((o) => o.key + o.label).join('|') + (snap.stopped ? 'S' : '');
+    const cancellable = ['REQUEST', 'RECEIVE', 'VERIFY'].includes(snap.state) && !snap.stopped;
+    // 작업 중일 때만 보임 (대기 중 요청 버튼은 입력 예시와 같고, 정지 중 안내는 정지 창이 함)
+    row.hidden = snap.stopped || !opts.length || opts.every((o) => o.key.startsWith('req_'));
+    const sig = opts.map((o) => o.key + o.label).join('|') + (snap.stopped ? 'S' : '') + (cancellable ? 'C' : '');
     if (sig === manualSig) return;
     manualSig = sig;
     box.innerHTML = '';
@@ -4445,6 +4864,14 @@
       b.textContent = o.label;
       b.addEventListener('click', () => postBackendAction('manual', null, { step: o.key }));
       box.appendChild(b);
+    }
+    if (cancellable) {                                   // [취소] 는 작업 중에만 여기에 (현재 상태 머리에서 옮김)
+      const c = document.createElement('button');
+      c.type = 'button';
+      c.className = 'mp-btn manual-btn row-in manual-cancel';
+      c.textContent = '취소';
+      c.addEventListener('click', () => postBackendAction('cancel'));
+      box.appendChild(c);
     }
   }
 
@@ -4856,7 +5283,7 @@
     if (hiPlace && paLabel) { hiPlace.textContent = ''; hiPlace.appendChild(paLabel); }   // 각도 입력은 설정 탭으로
     const ex = [['빨간 공 줘', '빨간 공 줘'], ['파란 공 줘', '파란 공 줘'], ['초록 공 줘', '초록 공 줘']];
     document.querySelectorAll('[data-ask]').forEach((b, i) => { if (ex[i]) { b.dataset.ask = ex[i][0]; b.textContent = ex[i][1]; b.classList.add('ball-btn'); b.dataset.part = String([1, 2, 3][i]); } });
-    document.getElementById('askInput').placeholder = '예: 빨간 공 줘 — 또는 [말하기]를 누르고 말하십시오';
+    document.getElementById('askInput').placeholder = '예: 빨간 공 줘';
     vlmReply.textContent = '받을 공을 입력하면 해석 결과가 여기에 나옵니다';
     vlmCues.textContent = '문장을 입력하면 VLM이 이해해 빨간 공 · 파란 공 · 초록 공 중 하나를 고르고 로봇에 신호를 보냅니다';
     document.querySelector('.status-actions [onclick="uiHand()"]').textContent = '쥐어줬습니다';
@@ -4864,7 +5291,7 @@
     world.standingHand = true;
     H3D.LAYOUT.forearmLen = 1.4;
     H3D.LAYOUT.turretHeight = 3.2;
-    H3D.CAM_PRESETS.iso = { yaw: -0.55, pitch: 0.32, dist: 30, target: { x: 0, y: 8.5, z: 0 }, fov: 42 };
+    H3D.CAM_PRESETS.iso = { yaw: -0.55, pitch: 0.32, dist: 30, target: { x: 1.7, y: 8.5, z: 1.05 }, fov: 42 };   // 손이 화면 가운데보다 살짝 왼쪽
     H3D.CAM_PRESETS.hand = { yaw: -0.35, pitch: 0.18, dist: 20, target: { x: 0, y: 10, z: 0 }, fov: 40 };
     H3D.CAM_PRESETS.side = { yaw: 1.2, pitch: 0.2, dist: 30, target: { x: 0, y: 8.5, z: 0 }, fov: 42 };
     H3D.CAM_PRESETS.top = { yaw: 0.0, pitch: 1.35, dist: 34, target: { x: 0, y: 6, z: 0 }, fov: 42 };
@@ -5029,14 +5456,20 @@
     });
   }
   function placeTiles(order, split) {
+    const shown = split === 1 ? [order[Math.min(Math.max(camFocus, 0), order.length - 1)]] : order.slice(0, split);
     order.forEach((id, i) => {
       let t = camGrid.querySelector(`.cam-tile[data-id="${id}"]`);
-      if (!t && i < split) { t = makeTile(id); t.classList.add('row-in'); camGrid.appendChild(t); }
+      if (!t && shown.includes(id)) { t = makeTile(id); t.classList.add('row-in'); camGrid.appendChild(t); }
       if (!t) return;
-      t.style.order = String(i + 1);
-      t.hidden = i >= split;
-      for (let k = 1; k <= 4; k++) t.classList.toggle(`pos-${k}`, k === i + 1);
+      const k = shown.indexOf(id);
+      t.style.order = String(k >= 0 ? k + 1 : i + 1);
+      t.hidden = k < 0;
+      for (let p = 1; p <= 4; p++) t.classList.toggle(`pos-${p}`, p === k + 1);
       t.querySelector('.tile-pos').textContent = `CAM ${i + 1}`;
+      if (t.hidden && id !== 'hand') {                  // 안 보이는 칸은 브라우저로 영상을 받지 않음 (서버 쪽 카메라는 계속 연결)
+        const img = t.querySelector('img');
+        if (img && img.getAttribute('src')) { img.removeAttribute('src'); img.dataset.want = ''; }
+      }
     });
   }
   function renderViews(snap) {
@@ -5280,58 +5713,459 @@
     });
   }
 
-  // ===== 판정 방식 (알람 바로 위): 색 이름은 팀원 ask_vlm =====
-  const JUDGE_STEPS = [
-    ['detect', '놓임 감지', '손 영역이 빈 손 사진과 달라지고 1초 멈추면 → VLM 에게 물음', '화면 변화'],
-    ['vlm', 'VLM 색 판정', '팀원 vlm_go 의 ask_vlm 을 빨간 공·파란 공·초록 공에 한 번씩 호출한다. true 인 색이 손 위 공의 색이다', 'VLM'],
-    ['rule', '요청과 비교', '그 색이 요청한 공이면 쥐고, 다른 색이면 넘긴다. 아무 색도 아니면 기다린다. VLM 이 답이 없을 때만 색 규칙', 'VLM'],
-    ['act', '로봇 신호', 'GRIP · NG · 대기. 내려놓은 뒤 손이 비었는지도 같은 ask_vlm 이 확인', 'VLM'],
-  ];
-  function buildJudgePanel() {
-    if (document.getElementById('judgePanel')) return;
-    const el = document.createElement('section');
-    el.className = 'judge-panel';
-    el.id = 'judgePanel';
-    el.innerHTML = `<div class="jp-head"><b>VLM 판단</b><span class="jp-mode" id="jpMode"></span><button type="button" class="jp-more" id="jpMore">자세히</button></div>
-      <div class="jp-body">
-        <div class="jp-col jp-judge"><div class="jp-sub">판정 방식</div>
-          <ol class="jp-steps">${JUDGE_STEPS.map(([k, t, d, who], i) => `<li data-step="${k}"><span class="jp-no">${i + 1}</span>`
-            + `<div title="${d}"><b>${t}</b><i class="jp-who">${who}</i><small>${d}</small></div></li>`).join('')}</ol>
-          <div class="jp-last" id="jpLast">최근 판정이 여기에 표시됩니다</div></div>
-        <div class="jp-col jp-look"><div class="jp-sub">VLM 관찰<button type="button" class="jp-look-btn" id="jpLookBtn" title="손 카메라 화면을 VLM 이 보고 무엇인지·색·개수·위치·상태를 알려 줌">관찰</button></div>
-          <div class="vlm-detail" id="vlmDetail"><span class="vd-empty">[관찰] 을 누르거나 VLM 이 쥐기를 승인하면 여기에 나옵니다</span></div></div>
-      </div>`;
-    document.querySelector('.console').appendChild(el);
-    el.querySelector('#jpLookBtn').addEventListener('click', () => postBackendAction('describe', null, { slot: 'hand' }));
-    try { el.classList.toggle('expanded', localStorage.getItem('aihand.judgeExpanded') === '1'); } catch (_) {}
-    const more = el.querySelector('#jpMore');
-    const sync = () => { more.textContent = el.classList.contains('expanded') ? '간단히' : '자세히'; };
-    sync();
-    more.addEventListener('click', () => {
-      el.classList.toggle('expanded');
-      sync();
-      try { localStorage.setItem('aihand.judgeExpanded', el.classList.contains('expanded') ? '1' : '0'); } catch (_) {}
-    });
-  }
+  // ===== VLM 판단 요약 (현재 상태 카드 안 한 줄) =====
+  const JUDGE_STEPS = [['detect', '놓임'], ['vlm', 'VLM 색'], ['rule', '비교'], ['act', '신호']];
   function renderJudge(snap) {
-    buildJudgePanel();
+    const line = document.getElementById('vlmLine');
+    line.hidden = false;
     const vOn = snap.vlm && snap.vlm.online;
-    document.getElementById('jpMode').textContent = vOn
-      ? `색 판단은 팀원 vlm_go 의 ask_vlm(${snap.vlm.model}) 을 세 색에 한 번씩 · 답이 없을 때만 색 규칙 · 문장 이해와 관찰은 대시보드 기능`
+    line.classList.toggle('off', !vOn);
+    line.title = vOn
+      ? `색 판단: 팀원 ask_vlm(${snap.vlm.model})을 빨간 공·파란 공·초록 공에 한 번씩 물음 · 답이 없을 때만 색 규칙`
       : 'VLM 꺼짐 — 지금은 색 규칙만으로 판정합니다 (Ollama 를 켜면 자동으로 VLM 판정)';
-    document.getElementById('judgePanel').classList.toggle('vlm-off', !vOn);
     const step = snap.vlm_step ? 'vlm'
       : snap.state === 'RECEIVE' ? 'detect'
       : snap.state === 'VERIFY' ? 'rule'
       : ['GRIP', 'PLACE', 'HOME'].includes(snap.state) ? 'act' : '';
-    document.querySelectorAll('.jp-steps li').forEach((li) => li.classList.toggle('on', li.dataset.step === step));
+    const steps = document.getElementById('vlSteps');
+    const sig = `${step}|${vOn}`;
+    if (steps.dataset.sig !== sig) {
+      steps.dataset.sig = sig;
+      steps.innerHTML = JUDGE_STEPS.map(([k, t], i) => `<i class="${k === step ? 'on' : ''}">${i + 1} ${t}</i>`).join('');
+    }
     const d = snap.decision;
-    const last = document.getElementById('jpLast');
-    const text = !d ? '최근 판정이 여기에 표시됩니다'
+    const last = document.getElementById('vlLast');
+    const text = !vOn ? 'VLM 꺼짐 · 색 규칙으로 판정'
+      : !d ? '최근 판정 없음'
       : d.final === '규칙'
-        ? `${d.time} · 요청 ${d.target || '-'} · VLM 응답 없음 → 색 규칙 ${d.rule}${d.rule_conf != null ? ` ${Math.round(d.rule_conf * 100)}%` : ''} → 규칙`
-        : `${d.time} · 요청 ${d.target || '-'} · VLM 색 ${d.color || '-'} → ${d.final}`;
+        ? `${d.time} · 요청 ${d.target || '-'} → VLM 응답 없음 → 색 규칙 ${d.rule}`
+        : `${d.time} · 요청 ${d.target || '-'} → VLM 색 ${d.color || '-'} → ${d.final}`;
     if (last.textContent !== text) { last.textContent = text; last.classList.remove('swap-in'); void last.offsetWidth; last.classList.add('swap-in'); }
+    const v = snap.vlm_detail;
+    const f = (v && v.fields) || {};
+    const look = document.getElementById('vlLook');
+    look.textContent = v ? (v.busy ? '· 관찰 중…' : `· 관찰: ${[f.object, f.color, f.count].filter((x) => x !== undefined && x !== '').join(' · ') || '없음'}`) : '';
+    look.title = v ? DETAIL_KO.filter(([k]) => f[k]).map(([k, ko]) => `${ko}: ${f[k]}`).join('\n') + '\n(판정에는 쓰지 않는 참고 정보)' : '';
+  }
+
+  // ===== 화면 배치 v2: 3D 손 모델은 현재 상태 안으로 · 카메라 탭 · [도구] =====
+  let layoutV2Done = false;
+  function layoutV2() {
+    if (layoutV2Done) return;
+    layoutV2Done = true;
+    const wrap = document.getElementById('wireframeWrap');
+    const robotWin = wrap && wrap.closest('.mp-window');
+    const statusCol = document.querySelector('.col-left > .status-card .status-col');
+    if (robotWin && statusCol) {
+      robotWin.classList.add('robot-win');
+      const slot = document.createElement('div');
+      slot.className = 'wf-slot';
+      slot.appendChild(wrap);
+      const views = document.createElement('div');
+      views.className = 'wf-views mono';
+      robotWin.querySelectorAll('.win-tools [data-cam]').forEach((b) => views.appendChild(b));
+      slot.appendChild(views);
+      const row = document.createElement('div');
+      row.className = 'wf-row';
+      row.appendChild(slot);
+      const side = document.createElement('div');
+      side.className = 'side-col';
+      side.appendChild(document.getElementById('stopBtn'));          // 비상정지 버튼: 상단 바 → 손 모델 옆
+      side.insertAdjacentHTML('beforeend', `<div class="stack-light" id="stackLight" role="status" aria-live="polite" title="">
+          <div class="sl-lamp red" data-k="red"><i></i><span>정지</span></div>
+          <div class="sl-lamp amber" data-k="amber"><i></i><span>주의</span></div>
+          <div class="sl-lamp green" data-k="green"><i></i><span>정상</span></div>
+        </div><p class="sl-why" id="slWhy"></p>`);
+      row.appendChild(side);
+      statusCol.appendChild(row);
+      const ctrl = document.getElementById('robotCtrl');
+      if (ctrl) statusCol.appendChild(ctrl);
+    }
+    const tb = document.querySelector('#cameraWindow .win-titlebar');
+    if (tb) {
+      const tabs = document.createElement('div');
+      tabs.className = 'cam-tabs';
+      tabs.id = 'camTabs';
+      tabs.hidden = true;
+      tb.querySelector('.win-label').after(tabs);
+      tabs.addEventListener('click', (ev) => {
+        const b = ev.target.closest('.cam-tab');
+        if (!b) return;
+        setCamFocus(Number(b.dataset.pos));
+      });
+      tb.querySelector('.split-ctl').style.marginLeft = 'auto';
+    }
+    window.addEventListener('resize', () => fitCamLayout());
+  }
+
+  // ---- 신호등: 빨강 = 정지 · 고장, 주황 = 주의 · 작업자 차례, 초록 = 정상 ----
+  function stackLevel(snap) {
+    const es = snap.estop || {};
+    const rb = snap.robot || {};
+    const cam = snap.camera || {};
+    if (es.latched || snap.stopped) return ['red', '비상 정지'];
+    if (!snap.is_mock && rb.status === 'disconnected') return ['red', '로봇 연결 끊김'];
+    if (es.paired && es.input === 'open') return ['red', '비상정지 버튼 눌림'];
+    if (es.paired && ['absent', 'fault'].includes(es.input)) return ['red', '비상정지 회로 이상'];
+    if (rb.status === 'no_response') return ['amber', '로봇 응답 없음'];
+    if (['connecting', 'updating'].includes(rb.status)) return ['amber', '로봇 연결 중'];
+    if (!cam.off && !(cam.running && !cam.error)) return ['amber', '카메라 끊김'];
+    if (snap.vlm && !snap.vlm.online) return ['amber', 'VLM 꺼짐'];
+    if (snap.tone === 'warn') return ['amber', '확인 필요'];
+    if (['RECEIVE', 'VERIFY'].includes(snap.state)) return ['amber', '작업자 차례'];
+    if (snap.moving) return ['green', '움직이는 중'];
+    return ['green', snap.state === 'IDLE' ? '대기' : '작업 중'];
+  }
+  function renderStackLight(snap) {
+    const el = document.getElementById('stackLight');
+    if (!el) return;
+    const [lv, why] = stackLevel(snap);
+    if (el.dataset.lv !== lv) {
+      el.dataset.lv = lv;
+      el.querySelectorAll('.sl-lamp').forEach((l) => l.classList.toggle('on', l.dataset.k === lv));
+    }
+    el.classList.toggle('moving', Boolean(snap.moving) && lv === 'green');
+    const w = document.getElementById('slWhy');
+    if (w.textContent !== why) { w.textContent = why; w.dataset.lv = lv; }
+    el.title = why;
+  }
+
+  // ---- 카메라 탭: 1분할에서 연결된 카메라를 하나씩 크게 ----
+  let camFocus = (() => { try { return Number(localStorage.getItem('aihand.camFocus') || 0); } catch (_) { return 0; } })();
+  function setCamFocus(pos) {
+    camFocus = pos;
+    try { localStorage.setItem('aihand.camFocus', String(pos)); } catch (_) {}
+    if (hoSnap) { placeTiles(hoSnap.view_order || ['hand', '2', '3', '4'], hoSnap.split || 1); renderViews(hoSnap); }
+  }
+  function camList(snap) {
+    const order = snap.view_order || ['hand', '2', '3', '4'];
+    const views = snap.views || [];
+    const cam = snap.camera || {};
+    return order.map((id, i) => {
+      if (id === 'hand') {
+        return { pos: i, id, has: true, tone: cam.off ? 'off' : (cam.running && !cam.error ? 'ok' : 'bad'),
+          detail: cam.off ? '꺼짐' : (cam.running && !cam.error ? `${cam.index}번 · ${Math.round(cam.fps || 0)}fps` : `${cam.index ?? '-'}번 끊김`) };
+      }
+      const v = views.find((x) => x.slot === Number(id));
+      if (!v) return { pos: i, id, has: false, tone: 'off', detail: '비어 있음' };
+      const src = /^\d+$/.test(String(v.src)) ? `${v.src}번` : String(v.src).split(/[\\/]/).pop();
+      return { pos: i, id, has: true, tone: v.off ? 'off' : (v.ok ? 'ok' : 'bad'),
+        detail: v.off ? '꺼짐' : (v.ok ? `${src} · ${Math.round(v.fps || 0)}fps` : `${src} 끊김`) };
+    });
+  }
+  function renderCamTabs(snap) {
+    const tabs = document.getElementById('camTabs');
+    if (!tabs) return;
+    const split = snap.split || 1;
+    const items = camList(snap).filter((x) => x.has);
+    if (!items.some((x) => x.pos === camFocus)) camFocus = items.length ? items[0].pos : 0;
+    tabs.hidden = split !== 1 || items.length < 2;
+    const sig = `${tabs.hidden}|${camFocus}|${items.map((x) => x.pos + x.tone).join(',')}`;
+    if (tabs.dataset.sig === sig) return;
+    tabs.dataset.sig = sig;
+    tabs.innerHTML = items.map((x) => `<button type="button" class="cam-tab ${x.tone}${x.pos === camFocus ? ' on' : ''}" data-pos="${x.pos}" title="${x.detail}"><i></i>CAM ${x.pos + 1}</button>`).join('');
+  }
+
+  // ---- 카메라 칸을 영상 비율에 딱 맞게: 오른쪽 열 폭을 높이에서 계산 (양옆 빈 공간 없음) ----
+  let camFitSig = '';
+  function fitCamLayout() {
+    const ms = document.querySelector('.main-split');
+    const colR = document.querySelector('.col-right');
+    const cw = document.getElementById('cameraWindow');
+    const ask = document.querySelector('.col-right > .ask-card');
+    if (!ms || !colR || !cw || !ask || !camGrid) return;
+    if (window.innerWidth <= 1020) { ms.style.removeProperty('--cam-col'); camGrid.style.height = ''; camGrid.style.flex = ''; placeTopo(false); return; }
+    const split = (hoSnap && hoSnap.split) || 1;
+    // 1분할에서 탭으로 고른 카메라가 손 카메라가 아니면 그 카메라의 영상 비율로 (예: 4:3)
+    const order = (hoSnap && hoSnap.view_order) || ['hand', '2', '3', '4'];
+    const focusId = order[Math.min(Math.max(camFocus, 0), order.length - 1)];
+    const fv = split === 1 && focusId !== 'hand' ? ((hoSnap && hoSnap.views) || []).find((x) => x.slot === Number(focusId)) : null;
+    const sz = fv ? fv.size : (hoSnap && hoSnap.hand_overlay && hoSnap.hand_overlay.size);
+    const a = sz && sz[0] && sz[1] ? sz[0] / sz[1] : 16 / 9;
+    const g = 6, gap = 10;
+    // 카메라 창의 제목 줄 + 아래 상태 줄 + 테두리 (격자 높이와 무관하게 재야 계산이 왔다갔다하지 않음)
+    const tbar = cw.querySelector('.win-titlebar');
+    const vp = cw.querySelector('.verdict-panel');
+    const chrome = (tbar ? tbar.offsetHeight : 44) + (vp ? vp.offsetHeight : 0) + 2;
+    const askH = ((ask.querySelector('#askForm') || ask).offsetHeight || 110) + 2;   // 카드가 늘어나도 내용 높이로 (되먹임 없음)
+    const Hg = Math.max(160, colR.clientHeight - askH - gap - chrome);
+    const widthFor = (H) => split === 1 ? H * a : split === 2 ? 2 * H * a + g
+      : split === 3 ? H * a + ((H - g) / 2) * a + g : 2 * ((H - g) / 2) * a + g;
+    const heightFor = (W) => split === 1 ? W / a : split === 2 ? (W - g) / 2 / a
+      : split === 3 ? (W - g + (g * a) / 2) / (1.5 * a) : 2 * (((W - g) / 2) / a) + g;
+    const maxW = ms.clientWidth - 470 - gap;
+    let want = widthFor(Hg);
+    let H = Hg;
+    if (want > maxW) { want = maxW; H = heightFor(maxW); }
+    const sig = `${Math.round(want)}|${Math.round(H)}|${Math.round(Hg)}`;
+    if (sig === camFitSig) return;
+    camFitSig = sig;
+    ms.style.setProperty('--cam-col', `${Math.round(want + 2)}px`);
+    const limited = H < Hg - 2;
+    camGrid.style.flex = limited ? 'none' : '';
+    camGrid.style.height = limited ? `${Math.round(H)}px` : '';
+    cw.style.flex = limited ? '0 0 auto' : '';                 // 칸이 폭에 맞춰 낮아지면 카메라 창도 같이 낮아짐
+    const spare = limited ? Hg - H - gap : 0;
+    const right = spare >= 130;
+    placeTopo(right);
+    ask.style.flex = limited && !right ? '1 1 auto' : '';      // 조금 남는 높이는 요청 카드가 받고 내용은 가운데로
+    if (topoEl) topoEl.querySelector('.topo-svg').style.maxHeight = right ? `${Math.max(80, Math.round(spare - 56))}px` : '';
+  }
+  function placeTopo(right) {
+    if (!topoEl) return;
+    const col = document.querySelector(right ? '.col-right' : '.col-left');
+    if (col && topoEl.parentNode !== col) { col.appendChild(topoEl); camFitSig = ''; }
+    applyTopoLayout(right ? 'wide' : 'tall');
+  }
+  function applyTopoLayout(mode) {
+    if (!topoEl || topoMode === mode) return;
+    topoMode = mode;
+    const src = mode === 'wide' ? TOPO_WIDE : TOPO_TALL;
+    for (const k of Object.keys(TOPO_N)) Object.assign(TOPO_N[k], { x: src[k].x, y: src[k].y }, src[k].w ? { w: src[k].w, h: src[k].h } : {});
+    topoEl.querySelector('#topoSvg').setAttribute('viewBox', TOPO_VIEW[mode]);
+    for (const k of Object.keys(TOPO_N)) {
+      const b = tnBox(k);
+      const g = document.getElementById(`tn-${k}`);
+      const box = g.querySelector('.tn-box');
+      box.setAttribute('x', b.x); box.setAttribute('y', b.y); box.setAttribute('width', b.w); box.setAttribute('height', b.h);
+      const lamp = g.querySelector('.tn-lamp');
+      lamp.setAttribute('x', b.x + 7); lamp.setAttribute('y', b.y + b.h / 2 - 2.5);
+      const t = g.querySelector('.tn-t');
+      t.setAttribute('x', b.x + 18); t.setAttribute('y', b.y + b.h / 2 + 4.5);
+    }
+    for (const [id, a, b] of TOPO_L) {
+      document.getElementById(`tpl-${id}`).setAttribute('d', topoPath(a, b, id));
+      topoStream[id] = undefined;                               // 길이가 바뀌었으니 흐르는 점을 다시
+      document.getElementById(`tpk-${id}`).innerHTML = '';
+    }
+    if (hoSnap) renderWiring(hoSnap);
+  }
+
+  // ===== 연결 그림: 장치마다 작은 노드 · 가는 선 · 실제 데이터 흐름을 따라 흐르는 패킷 =====
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const TN_W = 88, TN_H = 24;
+  const TOPO_N = {
+    voice: { x: 2, y: 2, t: '음성' }, cam1: { x: 2, y: 32, t: 'CAM 1' }, cam2: { x: 2, y: 62, t: 'CAM 2' },
+    cam3: { x: 2, y: 92, t: 'CAM 3' }, cam4: { x: 2, y: 122, t: 'CAM 4' },
+    pc: { x: 150, y: 60, t: 'PC', w: 88, h: 28 },
+    vlm: { x: 290, y: 14, t: 'VLM' }, mb: { x: 290, y: 62, t: 'micro:bit' }, adapter: { x: 290, y: 110, t: '정지 회로' },
+    servo: { x: 420, y: 62, t: '서보' }, btn: { x: 420, y: 110, t: '비상정지' }, hand: { x: 550, y: 62, t: '로봇 손' },
+  };
+  // 넓고 낮은 자리(2·3분할에서 오른쪽 아래)용 가로형: 입력 장치는 윗줄, 선은 케이블 다발처럼 PC 로
+  const TOPO_TALL = JSON.parse(JSON.stringify(TOPO_N));
+  const TOPO_WIDE = {
+    voice: { x: 0, y: 4 }, cam1: { x: 110, y: 4 }, cam2: { x: 220, y: 4 }, cam3: { x: 330, y: 4 }, cam4: { x: 440, y: 4 },
+    pc: { x: 590, y: 40, w: 96, h: 32 },
+    vlm: { x: 740, y: 4 }, mb: { x: 740, y: 44 }, adapter: { x: 740, y: 84 },
+    servo: { x: 880, y: 44 }, btn: { x: 880, y: 84 }, hand: { x: 1020, y: 44 },
+  };
+  const TOPO_VIEW = { tall: '0 0 642 150', wide: '0 0 1112 110' };
+  const TOPO_LANE = { voice: 0, cam1: 1, cam2: 2, cam3: 3, cam4: 4 };
+  let topoMode = 'tall';
+  const TOPO_L = [['voice', 'voice', 'pc'], ['cam1', 'cam1', 'pc'], ['cam2', 'cam2', 'pc'], ['cam3', 'cam3', 'pc'], ['cam4', 'cam4', 'pc'],
+    ['vlm', 'pc', 'vlm'], ['mb', 'pc', 'mb'], ['servo', 'mb', 'servo'], ['hand', 'servo', 'hand'],
+    ['adapter', 'pc', 'adapter'], ['btn', 'adapter', 'btn'], ['nc', 'btn', 'servo']];
+  const TOPO_TIP = {
+    voice: '클릭: 4초 말하기 (Whisper)', vlm: '클릭: 요청 입력창으로', mb: '클릭: 로그 · 설정', pc: '대시보드 서버',
+    adapter: '클릭: 비상정지 버튼 등록 · 점검', btn: '클릭: 비상정지 버튼 등록 · 점검',
+    servo: 'micro:bit 이 UART 로 명령만 보냄 (응답이 없는 구조라 연결 확인 불가)', hand: '서보 6개 (엄지 · 검지~새끼 · 손목)',
+    cam1: '클릭: 이 카메라 보기 (비어 있으면 고르기)', cam2: '클릭: 이 카메라 보기 (비어 있으면 고르기)',
+    cam3: '클릭: 이 카메라 보기 (비어 있으면 고르기)', cam4: '클릭: 이 카메라 보기 (비어 있으면 고르기)',
+  };
+  const tnBox = (k) => { const n = TOPO_N[k]; return { x: n.x, y: n.y, w: n.w || TN_W, h: n.h || TN_H }; };
+  function topoPath(a, b, id) {
+    const A = tnBox(a), B = tnBox(b);
+    if (id === 'nc') { const x = B.x + B.w / 2; return `M${x} ${A.y} L${x} ${B.y + B.h}`; }
+    if (topoMode === 'wide' && id in TOPO_LANE) {             // 위에서 내려와 나란한 선(차선)으로 PC 에
+      const lane = B.y + 8 + TOPO_LANE[id] * 4;
+      const cx = A.x + A.w / 2;
+      return `M${cx} ${A.y + A.h} L${cx} ${lane - 6} Q${cx} ${lane} ${cx + 6} ${lane} L${B.x} ${lane}`;
+    }
+    const x1 = A.x + A.w, y1 = A.y + A.h / 2, x2 = B.x, y2 = B.y + B.h / 2, cx = (x1 + x2) / 2;
+    return `M${x1} ${y1} C${cx} ${y1} ${cx} ${y2} ${x2} ${y2}`;
+  }
+  let topoEl = null;
+  const topoStream = {};
+  let topoLogKey = null;
+  let topoStates = {};
+  let topoSnap = null;
+  function buildTopo() {
+    topoEl = document.createElement('section');
+    topoEl.className = 'topo';
+    topoEl.id = 'topoPanel';
+    topoEl.innerHTML = `<div class="topo-head"><b>연결</b><span class="topo-sum" id="topoSum"></span>
+      <span class="topo-legend"><span><i style="background:var(--c-done)"></i>정상</span><span><i style="background:var(--c-hold)"></i>주의</span>
+      <span><i style="background:var(--warning)"></i>끊김</span><span><i style="background:var(--line)"></i>미사용</span></span>
+      <button type="button" class="topo-fold" id="topoFold">접기</button></div>
+      <div class="topo-body"><div><svg class="topo-svg" id="topoSvg" viewBox="0 0 642 150" role="img" aria-label="연결된 장치와 연결 상태"></svg></div></div>`;
+    document.querySelector('.col-left').appendChild(topoEl);
+    const svg = topoEl.querySelector('#topoSvg');
+    const links = TOPO_L.map(([id, a, b]) => `<path class="tl${id === 'nc' ? ' nc' : ''}" id="tpl-${id}" d="${topoPath(a, b, id)}"><title></title></path>`
+      + `<g class="tpk" id="tpk-${id}"></g>`).join('');
+    const nodes = Object.keys(TOPO_N).map((k) => {
+      const b = tnBox(k);
+      const click = !['pc', 'servo', 'hand'].includes(k) ? ' click' : '';
+      return `<g class="tn off${k === 'pc' ? ' pc' : ''}${click}" id="tn-${k}" data-node="${k}"><title>${TOPO_TIP[k] || ''}</title>`
+        + `<rect class="tn-box" x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}"/>`
+        + `<rect class="tn-lamp" x="${b.x + 7}" y="${b.y + b.h / 2 - 2.5}" width="5" height="5"/>`
+        + `<text class="tn-t" x="${b.x + 18}" y="${b.y + b.h / 2 + 4.5}">${TOPO_N[k].t}</text></g>`;
+    }).join('');
+    svg.innerHTML = links + nodes;
+    svg.addEventListener('click', (ev) => {
+      const g = ev.target.closest('.tn.click');
+      if (!g) return;
+      const k = g.dataset.node;
+      if (k === 'voice') postBackendAction('voice');
+      else if (k.startsWith('cam')) {
+        const pos = Number(k.slice(3)) - 1;
+        const it = topoSnap ? camList(topoSnap)[pos] : null;
+        if (it && it.has) {
+          if (topoSnap && (topoSnap.split || 1) !== 1) postBackendAction('view_split', null, { n: 1 });
+          setCamFocus(pos);
+        } else openCamPicker(it ? `view${it.id}` : 'hand');
+      }
+      else if (k === 'vlm') askInput.focus();
+      else if (k === 'mb') document.getElementById('drawerOpenBtn').click();
+      else esPanel.hidden = false;
+    });
+    const fold = topoEl.querySelector('#topoFold');
+    const syncFold = () => { fold.textContent = topoEl.classList.contains('folded') ? '펼치기' : '접기'; };
+    try { topoEl.classList.toggle('folded', localStorage.getItem('aihand.topoFolded') === '1'); } catch (_) {}
+    syncFold();
+    fold.addEventListener('click', () => {
+      topoEl.classList.toggle('folded');
+      syncFold();
+      try { localStorage.setItem('aihand.topoFolded', topoEl.classList.contains('folded') ? '1' : '0'); } catch (_) {}
+      camFitSig = '';
+      setTimeout(fitCamLayout, 340);
+    });
+  }
+  const REDUCED = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // 계속 흐르는 패킷: 설정이 바뀔 때만 다시 그림 (애니메이션이 끊기지 않게)
+  function topoSetStream(id, cfg) {
+    const sig = cfg ? `${cfg.n}|${cfg.speed}|${cfg.dir}|${cfg.cls || ''}` : '';
+    if (topoStream[id] === sig) return;
+    topoStream[id] = sig;
+    const g = document.getElementById(`tpk-${id}`);
+    if (!cfg || REDUCED) { g.innerHTML = ''; return; }
+    const len = document.getElementById(`tpl-${id}`).getTotalLength();
+    const dur = Math.max(0.5, len / cfg.speed);
+    let html = '';
+    for (let i = 0; i < cfg.n; i++) {
+      const back = cfg.dir === 'back' || (cfg.dir === 'both' && i % 2 === 1);
+      html += `<circle class="pk ${cfg.cls || ''}" r="2"><animateMotion dur="${dur.toFixed(2)}s" begin="${(-i * dur / cfg.n).toFixed(2)}s" repeatCount="indefinite"`
+        + ` keyPoints="${back ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear"><mpath href="#tpl-${id}" xlink:href="#tpl-${id}"/></animateMotion></circle>`;
+    }
+    g.innerHTML = html;
+  }
+  // 한 번 지나가는 펄스: 로봇 명령(TX) · 응답(RX) 같은 실제 사건
+  function topoPulse(chain, back, cls) {
+    if (REDUCED || !topoEl || topoEl.classList.contains('folded')) return;
+    let delay = 0;
+    for (const id of chain) {
+      const path = document.getElementById(`tpl-${id}`);
+      if (!path || ['off', 'bad'].includes(topoStates[id])) break;
+      const dur = Math.max(0.22, path.getTotalLength() / 480);
+      setTimeout(() => {
+        const g = document.getElementById(`tpk-${id}`);
+        const c = document.createElementNS(SVGNS, 'circle');
+        c.setAttribute('class', `pk ev ${cls || ''}`);
+        c.setAttribute('r', '2.8');
+        c.innerHTML = `<animateMotion dur="${dur.toFixed(2)}s" begin="indefinite" fill="freeze" keyPoints="${back ? '1;0' : '0;1'}" keyTimes="0;1" calcMode="linear">`
+          + `<mpath href="#tpl-${id}" xlink:href="#tpl-${id}"/></animateMotion>`;
+        g.appendChild(c);
+        const an = c.querySelector('animateMotion');
+        if (an && an.beginElement) an.beginElement();
+        setTimeout(() => c.remove(), dur * 1000 + 80);
+      }, delay * 1000);
+      delay += dur;
+    }
+  }
+  function topoStateOf(snap) {
+    const S = {};
+    const rb = snap.robot || {};
+    const v = snap.voice || { phase: 'off' };
+    const vl = snap.vlm || {};
+    const es = snap.estop || { input: 'unpaired' };
+    S.voice = v.phase === 'off' ? ['off', v.msg && v.msg.includes('pip') ? '설치 필요' : '사용 안 함']
+      : v.phase === 'loading' ? ['busy', '준비 중'] : ['ok', v.phase === 'listening' ? '듣는 중' : 'Whisper'];
+    camList(snap).forEach((c) => { S[`cam${c.pos + 1}`] = [c.tone, c.detail]; });
+    S.vlm = vl.online ? ['ok', vl.model || 'Ollama'] : ['bad', '꺼짐'];
+    S.mb = snap.is_mock ? ['ok', '모의']
+      : ({ connected: [rb.fw_warning ? 'warn' : 'ok', `${rb.port} v${rb.fw}`], no_response: ['warn', '응답 없음'],
+        connecting: ['busy', '연결 중'], updating: ['busy', '펌웨어 설치'] }[rb.status] || ['bad', 'USB 없음']);
+    const mbOk = ['ok', 'warn'].includes(S.mb[0]);
+    S.servo = mbOk ? ['unk', 'UART'] : ['off', '-'];
+    S.hand = !mbOk ? ['off', '-'] : (es.latched || snap.stopped) ? ['warn', '정지'] : ['unk', snap.moving ? '움직이는 중' : '대기'];
+    S.adapter = es.input === 'unpaired' ? ['off', '미등록'] : es.input === 'absent' ? ['bad', '연결 안 됨']
+      : es.input === 'fault' ? ['bad', '회로 이상'] : es.input === 'checking' ? ['busy', '확인 중'] : ['ok', es.lines || es.port];
+    S.btn = es.input === 'unpaired' ? ['off', '미등록'] : es.input === 'closed' ? ['ok', '풀림'] : es.input === 'open' ? ['bad', '눌림']
+      : es.input === 'checking' ? ['busy', '확인 중'] : ['off', '-'];
+    const okN = Object.values(S).filter((s) => ['ok', 'warn'].includes(s[0])).length;
+    const badN = Object.values(S).filter((s) => s[0] === 'bad').length;
+    S.pc = ['ok', badN ? `끊김 ${badN}` : '정상'];
+    return S;
+  }
+  function renderWiring(snap) {
+    if (!topoEl) buildTopo();
+    topoSnap = snap;
+    const S = topoStateOf(snap);
+    for (const k of Object.keys(TOPO_N)) {
+      const g = document.getElementById(`tn-${k}`);
+      const [tone, detail] = S[k];
+      const cls = `tn ${tone}${k === 'pc' ? ' pc' : ''}${g.classList.contains('click') ? ' click' : ''}`;
+      if (g.getAttribute('class').replace(' flash', '') !== cls) {
+        const was = g.dataset.tone;
+        g.setAttribute('class', cls + (was && was !== tone ? ' flash' : ''));
+        g.dataset.tone = tone;
+      }
+      const tip = `${TOPO_N[k].t} — ${detail}${TOPO_TIP[k] ? `
+${TOPO_TIP[k]}` : ''}`;
+      const ttl = g.querySelector('title');
+      if (ttl.textContent !== tip) ttl.textContent = tip;
+    }
+    const L = { voice: S.voice[0], vlm: S.vlm[0], mb: S.mb[0], servo: S.servo[0], hand: S.hand[0] === 'warn' ? 'unk' : S.hand[0],
+      adapter: S.adapter[0], btn: S.btn[0] === 'bad' ? 'bad' : S.adapter[0] === 'ok' ? S.btn[0] : 'off', nc: 'unk' };
+    for (let i = 1; i <= 4; i++) L[`cam${i}`] = S[`cam${i}`][0];
+    topoStates = L;
+    for (const [id] of TOPO_L) {
+      const p = document.getElementById(`tpl-${id}`);
+      const cls = `tl ${L[id]}${id === 'nc' ? ' nc' : ''}`;
+      if (p.getAttribute('class') !== cls) p.setAttribute('class', cls);
+    }
+    document.querySelector('#tpl-nc title').textContent = 'NC ① 서보 전원 차단 — 프로그램이 볼 수 없는 선이라 배선을 직접 확인하십시오';
+    // 흐르는 패킷: 실제로 데이터가 오가는 곳만
+    const v = snap.voice || {};
+    const vlmBusy = Boolean(snap.vlm_step || snap.vlm_state === 'checking' || (snap.vlm_detail && snap.vlm_detail.busy) || v.phase === 'understood');
+    const es = snap.estop || {};
+    topoSetStream('voice', v.phase === 'listening' ? { n: 4, speed: 200, dir: 'fwd', cls: 'fast' } : null);
+    camList(snap).forEach((c) => topoSetStream(`cam${c.pos + 1}`, c.tone === 'ok' ? { n: 2, speed: 110, dir: 'fwd' } : null));
+    topoSetStream('vlm', L.vlm !== 'ok' ? null : vlmBusy ? { n: 4, speed: 220, dir: 'both', cls: 'fast' } : { n: 1, speed: 40, dir: 'both' });
+    topoSetStream('mb', ['ok', 'warn'].includes(L.mb) ? { n: 1, speed: 55, dir: 'both' } : null);
+    topoSetStream('servo', L.servo !== 'off' && snap.moving ? { n: 2, speed: 180, dir: 'fwd', cls: 'fast' } : null);
+    topoSetStream('hand', L.hand !== 'off' && snap.moving ? { n: 2, speed: 180, dir: 'fwd', cls: 'fast' } : null);
+    const loopOk = es.input === 'closed';
+    topoSetStream('adapter', loopOk ? { n: 2, speed: 140, dir: 'both' } : null);
+    topoSetStream('btn', loopOk ? { n: 2, speed: 140, dir: 'both' } : null);
+    // 사건 펄스: 새 로그의 TX(명령) → PC→micro:bit→서보→손, RX(DONE) → micro:bit→PC
+    const logs = snap.logs || [];
+    const key = (it) => `${it.time}|${it.dir}|${it.text}`;
+    if (topoLogKey === null) {
+      topoLogKey = logs.length ? key(logs[logs.length - 1]) : '';
+    } else if (logs.length) {
+      const at = logs.map(key).lastIndexOf(topoLogKey);
+      const fresh = at >= 0 ? logs.slice(at + 1) : [];
+      topoLogKey = key(logs[logs.length - 1]);
+      for (const it of fresh.slice(-3)) {
+        if (it.dir === 'TX') topoPulse(['mb', 'servo', 'hand'], false);
+        else if (it.dir === 'RX' && it.text.startsWith('DONE')) topoPulse(['mb'], true, 'rx');
+      }
+    }
+    const bad = Object.keys(S).filter((k) => S[k][0] === 'bad').map((k) => TOPO_N[k].t);
+    const sum = document.getElementById('topoSum');
+    const txt = bad.length ? `끊김 — ${bad.join(' · ')}` : '모든 장치 정상';
+    if (sum.textContent !== txt) sum.textContent = txt;
+    sum.classList.toggle('bad', bad.length > 0);
   }
 
   // ===== 음성 입력 (팀원 vlm_go.py 의 Whisper 그대로) =====
@@ -5363,10 +6197,12 @@
 
   function applyHandover(snap) {
     if (!handoverMode) enterHandoverMode();
+    layoutV2();
     hoSnap = snap;
     const steps = ['IDLE', 'REQUEST', 'RECEIVE', 'VERIFY', 'GRIP', 'PLACE', 'HOME'];
     // robot 3D mirrors the real pose
-    world.emergencyStopped = Boolean(snap.stopped);
+    world.emergencyStopped = Boolean(snap.stopped || (snap.estop && snap.estop.latched));
+    renderEstopSwitch(snap.estop);
     world.state = HO_LEGACY[snap.state] || 'IDLE';
     world.targetPart = snap.target ? HO_PART[snap.target] : null;
     // 3D 로봇이 실물 자세(마지막 명령 + 펌웨어 동작 시간)를 그대로 따라간다
@@ -5440,8 +6276,11 @@
     vlmEl.textContent = vs.online ? `VLM ${vs.model} 연결됨` : 'VLM 꺼짐 · 단어 규칙으로 해석';
     vlmEl.title = vs.online ? `${vs.url} — 문장 이해 + 손 위 공 확인` : (vs.note || 'Ollama 를 실행하면 자동으로 연결됩니다');
     renderViews(snap);
+    renderCamTabs(snap);
+    renderStackLight(snap);
     renderJudge(snap);
-    renderDetail(snap);
+    renderWiring(snap);
+    fitCamLayout();
     renderOverlay(snap);
     renderVoice(snap);
     const pa = document.getElementById('placeAngle');

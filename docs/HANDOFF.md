@@ -142,3 +142,11 @@ python handover_app.py              # 대시보드가 Ollama 를 자동으로 �
 python -m unittest discover -s tests            # 143개 (팀 test 이미지가 없으면 2개 건너뜀)
 python handover_app.py --mock                   # 로봇 없이 대시보드 흐름 확인 → http://127.0.0.1:8090/index.html
 ```
+
+### 비상정지 (물리 버튼) — `controller/estop.py` (2026-11-28)
+- **배선**: 버튼의 NC 접점 ① → 서보 전원(+) 직렬 (전원 직접 차단, 프로그램과 무관). NC 접점 ② → USB-시리얼 어댑터(CH340 · CP2102 · FT232)의 출력선(RTS 또는 DTR) ↔ 입력선(CTS · DSR · DCD 중 하나). 데이터선(TX/RX)은 쓰지 않음. micro:bit 펌웨어(`vlm_go/microbit_go.py`)는 그대로.
+- **감지**: 출력선을 무작위로 켰다 껐다 하며 입력선이 따라오는지 50Hz 로 검사 (도달 뒤 4번 더 읽어 잡음 거름). 2회 연속 실패 = 눌림 · 배선 끊김 → 정지. 어댑터 분리 · 열기 실패 · 감시 스레드 멈춤(0.8초)도 정지.
+- **정지 잠금**: STOP 을 ACK 가 올 때까지 0.05초마다, 그 뒤 1초마다 재전송. `GuardedLink` 가 STOP · PING · VER 외 모든 명령을 막음. micro:bit 재부팅(READY) · 재연결 시 STOP 다시 보냄. 보드 A+B 정지(ERR,STOPPED)도 잠금으로.
+- **해제**: 버튼 풀림 + 회로 정상 0.5초 유지 + 화면에서 안전 확인 후 [정지 해제 · 대기 복귀]. 버튼을 풀기만 해서는 움직이지 않음.
+- **등록**: 상단 [비상정지 버튼] → [스위치 등록] → ① 회로 찾기(버튼 풀린 채) ② 버튼 누르기 ③ 버튼 풀기. 어댑터 USB 정보 · 선 조합이 `data/handover_settings.json` 의 `estop` 에 저장되고 COM 번호가 바뀌어도 찾음. `--mock` 에서는 가상 버튼 · 가상 어댑터로 시험.
+- 시험: `tests/test_estop.py` (눌림 · 끊김 · 분리 · 고착 · 잡음 · USB 지연 · 재부팅 · 재연결 · 등록 전 과정).

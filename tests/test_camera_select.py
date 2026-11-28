@@ -262,14 +262,14 @@ class MultiCamTests(unittest.TestCase):
         saved = json.loads(app.Runtime.SETTINGS_FILE.read_text())
         self.assertEqual(saved["view_sources"], {"3": 2})
 
-    def test_reorder_then_shrink_closes_hidden_cameras(self):
+    def test_reorder_then_shrink_keeps_cameras_connected(self):
         self.rt.set_view(2, "0")
         self.rt.set_view(4, "3")
         self.assertTrue(self.rt.set_view_order(["4", "hand", "2", "3"])["ok"])   # CAM 1 자리에 4번 칸
         cam_slot2 = self.rt.views[2]
-        self.rt.set_split(2)                                            # 보이는 건 "4", "hand" 뿐
-        self.assertEqual(sorted(self.rt.views), [4])
-        self.assertTrue(cam_slot2.stopped)
+        self.rt.set_split(1)                                            # 1분할: 나머지는 탭으로 봄
+        self.assertEqual(sorted(self.rt.views), [2, 4])                 # 숨은 칸 카메라도 연결 유지
+        self.assertFalse(cam_slot2.stopped)
 
     def test_bad_order_rejected(self):
         self.assertFalse(self.rt.set_view_order(["hand", "2", "2", "4"])["ok"])
@@ -298,7 +298,7 @@ class AutoCamTests(MultiCamTests):
     def test_missing_hand_camera_takes_first_found_and_rest_fill_tiles(self):
         notes = self.rt.auto_place([0, 2, 3])                   # 손 카메라(1번)가 없음
         self.assertEqual(self.rt.camera_index, 0)
-        self.assertEqual(self.rt.split, 3)
+        self.assertEqual(self.rt.split, 1)                      # 분할은 그대로 (탭으로 하나씩)
         self.assertEqual(sorted(v.src for v in self.rt.views.values()), [2, 3])
         self.assertTrue(any("손 카메라" in n for n in notes))
 
@@ -306,7 +306,7 @@ class AutoCamTests(MultiCamTests):
         self.rt.auto_place([1, 4])
         self.assertEqual(self.rt.camera_index, 1)
         self.assertEqual([v.src for v in self.rt.views.values()], [4])
-        self.assertEqual(self.rt.split, 2)
+        self.assertEqual(self.rt.split, 1)
 
     def test_already_shown_cameras_are_not_duplicated(self):
         self.rt.auto_place([1, 4])
@@ -315,7 +315,7 @@ class AutoCamTests(MultiCamTests):
 
     def test_more_than_four_cameras(self):
         notes = self.rt.auto_place([1, 2, 3, 4, 5])
-        self.assertEqual(self.rt.split, 4)
+        self.assertEqual(self.rt.split, 1)
         self.assertEqual(len(self.rt.views), 3)
         self.assertTrue(any("모자라" in n for n in notes))
 

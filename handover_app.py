@@ -24,6 +24,7 @@ import webbrowser
 import cv2
 import numpy as np
 
+from controller.estop import EStop, GuardedLink, MockSwitchWorld, SerialLoopDevice, list_serial_ports
 from controller.handover import HandoverTask
 from vision.parts import LABEL_KO, LABELS, PartClassifier, PartResult, YoloParts, detect_change, find_balls, \
     hand_zone_from_motion
@@ -474,7 +475,16 @@ class Runtime:
                  tray_roi: tuple | None = None):
         self.tray_roi = tray_roi                    # 쟁반 영역(정규화). 없으면 '손 영역 밖 전체'를 쟁반으로 봄
         self.link = link
-        self.task = HandoverTask(link, vlm=vlm)
+        # 비상정지: 물리 버튼 감시 + 잠금. 작업(task)은 GuardedLink 를 거쳐서만 로봇에 명령한다.
+        self._mock_switch = MockSwitchWorld() if getattr(link, "is_mock", False) else None
+        self._home_pending = False
+        self.estop = EStop(link, cfg=None if self._mock_switch else self.read_settings().get("estop"),
+                           log=lambda d, t: self.task._log(d, t),
+                           lister=self._mock_switch.lister if self._mock_switch else list_serial_ports,
+                           opener=self._mock_switch.opener if self._mock_switch else SerialLoopDevice,
+                           exclude_ports=lambda: {getattr(link, "port", "")} - {"", "mock"},
+                           on_save=self._save_estop, mock_world=self._mock_switch)
+        self.task = HandoverTask(GuardedLink(link, self.estop), vlm=vlm)
         self.task.frame_source = lambda: self.frame           # VLM 확인용 현재 프레임
         self.task.palm_crop = self._palm_crop                  # VLM 에 보여 줄 손 영역 사진
         self.task.on_grip_approved = lambda img: self.start_describe(img, "손 위 (쥐기 승인 직후)")
@@ -523,6 +533,9 @@ class Runtime:
         self.infer_ms = 0.0
         self.palm_roi = self._load_roi()
         self._load_settings()
+        self.estop.start()
+        if not self.estop.cfg:
+            self.task._log("SYS", "비상정지 스위치 미등록 — 화면의 [비상 정지]·Space 와 micro:bit A+B 만 쓸 수 있습니다")
         self.recv_bg = None
         self.manual_bg = None
         self.running = True
@@ -531,7 +544,8 @@ class Runtime:
         self._last_frame_t = 0.0
         # 분할 화면: 2~4번 칸에 추가 카메라 (설정에 저장), 그중 한 칸을 쟁반으로
         st = self.read_settings()
-        self.split = max(1, min(MAX_VIEWS, int(st.get("split", 1))))
+        # 기본은 1분할 (여러 카메라는 탭으로 하나씩). 예전 설정의 분할 수는 한 번만 1로 되돌림
+        self.split = max(1, min(MAX_VIEWS, int(st.get("split", 1)))) if st.get("layout_v2") else 1
         self.views: dict[int, ViewCam] = {}
         self.tray_slot: int | None = st.get("tray_slot")
         self._tray_view_items: list[dict] = []
@@ -573,12 +587,7 @@ class Runtime:
 
     def set_split(self, n: int) -> dict:
         self.split = max(1, min(MAX_VIEWS, int(n)))
-        shown = self.visible_slots()
-        for k in [k for k in self.views if str(k) not in shown]:   # 화면에서 빠진 칸의 카메라는 닫음 (USB 대역폭 · 불빛)
-            self.views.pop(k).stop()
-            if self.tray_slot == k:
-                self.tray_slot = None
-        self._save_views()
+        self._save_views()                   # 보이지 않는 칸의 카메라도 계속 연결 (탭으로 바로 볼 수 있게 · 쟁반 인식 유지)
         return {"ok": True, "reply": f"카메라 {self.split}분할"}
 
     def set_tray_slot(self, slot) -> dict:
@@ -681,7 +690,7 @@ class Runtime:
 
     def auto_place(self, found: list[int]) -> list[str]:
         """찾은 카메라를 CAM 칸에: 손 카메라는 지금 번호가 살아 있으면 그대로, 아니면 첫 번째 카메라.
-        나머지는 보이는 순서대로 빈 칸에, 모자라면 분할을 늘림 (최대 4)."""
+        나머지는 CAM 순서대로 빈 칸에 (분할 수는 바꾸지 않음 — 화면에서는 탭으로 하나씩 봄, 최대 4대)."""
         notes = []
         if not found:
             return notes
@@ -694,11 +703,8 @@ class Runtime:
         extra = [i for i in found if i != self.camera_index and i not in shown]
         if not extra:
             return notes
-        want = min(MAX_VIEWS, 1 + len(self.views) + len(extra))
-        if want > self.split:
-            self.set_split(want)
         for idx in extra:
-            free = [k for k in self.visible_slots() if k != "hand" and int(k) not in self.views]
+            free = [k for k in self.view_order if k != "hand" and int(k) not in self.views]
             if not free:
                 notes.append(f"{idx}번은 칸이 모자라 띄우지 못함 (최대 {MAX_VIEWS}칸)")
                 continue
@@ -738,7 +744,7 @@ class Runtime:
         return {"ok": True, "reply": msg}
 
     def _save_views(self) -> None:
-        self._save_settings(split=self.split, tray_slot=self.tray_slot, view_order=self.view_order,
+        self._save_settings(split=self.split, layout_v2=True, tray_slot=self.tray_slot, view_order=self.view_order,
                             view_sources={str(k): v.src for k, v in self.views.items()})
 
     def view_jpeg(self, slot: int):
@@ -765,6 +771,10 @@ class Runtime:
             self.task.place_angle = int(st.get("place_angle", self.task.place_angle))
         except (TypeError, ValueError):
             pass
+
+    def _save_estop(self, cfg: dict | None) -> None:
+        if self._mock_switch is None:                 # 모의 실행은 실제 설정을 건드리지 않음
+            self._save_settings(estop=cfg)
 
     def _save_settings(self, **extra) -> None:
         st = self.read_settings()
@@ -1263,9 +1273,20 @@ class Runtime:
                 if was_connected and not now_connected:
                     self.task.link_lost()
                 was_connected = now_connected
+                self._safety_step(now_connected)
                 self.task.step(res)
             self._camera_watchdog()
             time.sleep(0.05)
+
+    def _safety_step(self, connected: bool) -> None:
+        """작업 루프마다 (잠금 안에서): 감시 스레드 생존 확인 · 정지 잠금을 작업 상태에 반영 · 미뤄 둔 첫 HOME."""
+        self.estop.watchdog()
+        if self.estop.latched and not self.task.stopped:
+            self.task.stop()                         # 물리 버튼 · 회로 이상 → 작업도 정지 (로봇 응답 처리보다 먼저)
+        if self._home_pending and connected and self.task.state == "IDLE" and not self.task.stopped \
+                and self.estop.allow("HOME"):
+            self._home_pending = False               # 시작 직후 스위치 확인을 기다렸다가 첫 HOME
+            self.task._send("HOME")
 
     STALL_S = 5.0
 
@@ -1286,7 +1307,12 @@ class Runtime:
 
     def on_robot_connect(self) -> None:
         with self.lock:
-            self.task._send("HOME")
+            if self.estop.latched:
+                self.estop.robot_connected()             # 정지 중: HOME 대신 STOP (재부팅으로 풀린 펌웨어 정지를 다시 걸기)
+            elif self.estop.allow("HOME"):
+                self.task._send("HOME")
+            else:
+                self._home_pending = True                # 스위치 회로 확인 뒤에 보냄
 
     # ---- 카메라 선택 ----
     MAX_CAMERAS = 10
@@ -1414,6 +1440,7 @@ class Runtime:
             snap["is_mock"] = self.link.is_mock
             snap["port"] = self.link.port
             snap["robot"] = self.link.info()
+            snap["estop"] = self.estop.status()
             snap["camera_roles"] = [("hand" if k == "hand" else f"view{k}") for k in self.visible_slots()]
             snap["view_order"] = list(self.view_order)
             snap["auto_cams"] = self.auto_cams
@@ -1521,6 +1548,24 @@ class Runtime:
             st = self.state()
             st["result"] = out
             return st
+        if a in ("estop_pair", "estop_pair_cancel", "estop_unpair", "estop_mock"):
+            if a == "estop_pair":
+                ok, msg = self.estop.pair_start()
+            elif a == "estop_pair_cancel":
+                ok, msg = self.estop.pair_cancel()
+            elif a == "estop_unpair":
+                ok, msg = self.estop.unpair()
+            elif self._mock_switch is None:
+                ok, msg = False, "가상 버튼은 --mock 실행에서만 쓸 수 있습니다"
+            else:                                         # --mock: 가상 비상정지 버튼 누르기 · 어댑터 빼기
+                if "pressed" in p:
+                    self._mock_switch.pressed = bool(p["pressed"])
+                if "plugged" in p:
+                    self._mock_switch.plugged = bool(p["plugged"])
+                ok, msg = True, f"가상 버튼 {'눌림' if self._mock_switch.pressed else '풀림'} · 어댑터 {'연결' if self._mock_switch.plugged else '분리'}"
+            st = self.state()
+            st["result"] = {"ok": ok, "reply": msg}
+            return st
         pre = None
         if a == "request" and self.task.vlm is not None and self.link.connected and not self.task.stopped                 and self.task.state == "IDLE":
             pre = self.task.vlm.interpret(str(p.get("text", "")))   # VLM 은 느릴 수 있어 잠금 밖에서 먼저
@@ -1542,9 +1587,15 @@ class Runtime:
             elif a == "cancel":
                 self.task.cancel()
             elif a == "stop":
+                self.estop.trip("pc", "PC 비상 정지 (화면 버튼 · Space)")
                 self.task.stop()
             elif a == "resume":
-                self.task.resume()
+                ok, why = self.estop.reset()             # 물리 버튼이 풀리고 회로가 정상이어야만 해제
+                if ok:
+                    self.task.resume()
+                else:
+                    out = {"ok": False, "reply": why}
+                    self.task._log("ERR", f"[비상정지] 해제 거절 — {why}")
             elif a in ("learn", "bg", "roi") and not self._camera_ok():
                 out = {"ok": False, "reply": "카메라가 연결되지 않았습니다"}
             elif a == "learn" and p.get("label") in LABELS:
@@ -1724,6 +1775,7 @@ def main() -> None:
         pass
     finally:
         rt.running = False
+        rt.estop.close()
         link.close()
 
 

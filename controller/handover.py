@@ -120,7 +120,8 @@ class HandoverTask:
 
     def _send(self, cmd: str, wait: bool = True) -> bool:
         if self.link.send(cmd) is False:
-            self._log("ERR", f"{cmd} 전송 실패 — 로봇 미연결")
+            why = getattr(self.link, "block_reason", "")       # GuardedLink: 비상정지로 막힘
+            self._log("ERR", f"{cmd} 차단 — {why}" if why else f"{cmd} 전송 실패 — 로봇 미연결")
             return False
         self._log("TX", cmd)
         self._start_motion(cmd)
